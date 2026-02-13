@@ -37,6 +37,7 @@ interface TournamentContextType {
   updateGroup: (competitionId: string, groupId: string, updates: Partial<Group>) => void;
   reorderFixtureToPitch: (fixtureId: string, targetPitchId: string, targetIndex?: number) => void;
   updateCompetition: (id: string, updates: Partial<Competition>) => void;
+  batchUpdateFixtures: (updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[]) => void;
 }
 
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
@@ -477,6 +478,29 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
   };
 
+  const batchUpdateFixtures = (updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[]) => {
+    setCompetitions(prevCompetitions => {
+      // Create a map for faster lookup if needed, but array size is likely small enough
+      return prevCompetitions.map(comp => {
+        const compUpdates = updates.filter(u => u.competitionId === comp.id);
+        if (compUpdates.length === 0) return comp;
+
+        const updateMap = new Map(compUpdates.map(u => [u.fixtureId, u.updates]));
+
+        return {
+          ...comp,
+          fixtures: comp.fixtures.map(f => {
+            const update = updateMap.get(f.id);
+            if (update) {
+              return { ...f, ...update };
+            }
+            return f;
+          })
+        };
+      });
+    });
+  };
+
   return (
     <TournamentContext.Provider value={{
       competitions,
@@ -500,7 +524,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       deletePitch,
       autoScheduleMatches,
       reorderFixtureToPitch,
-      updateCompetition
+      updateCompetition,
+      batchUpdateFixtures
     }}>
       {children}
     </TournamentContext.Provider>
