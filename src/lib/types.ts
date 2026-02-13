@@ -10,6 +10,9 @@ export interface Team {
   id: string;
   name: string;
   groupId?: string;
+  initials?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
 }
 
 export interface Fixture {
@@ -28,6 +31,7 @@ export interface Fixture {
 export interface Competition {
   id: string;
   name: string;
+  code?: string;
   teams: Team[];
   groups: Group[];
   fixtures: Fixture[];

@@ -5,7 +5,8 @@ import { useTournament } from '@/context/TournamentContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Trash2, GripVertical, Plus } from 'lucide-react';
+import { Trash2, GripVertical, Plus, Pencil } from 'lucide-react';
+import { TeamEditDialog } from '@/components/TeamEditDialog';
 
 interface GroupListProps {
     competitionId: string;
@@ -80,8 +81,16 @@ export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, tea
                                 className="flex items-center gap-2 p-2 bg-white border rounded cursor-move hover:shadow-sm transition-all"
                             >
                                 <GripVertical className="h-4 w-4 text-muted-foreground" />
-                                <span className="text-sm font-medium flex-1">{team.name}</span>
-                                {/* Allow simple edit/delete even here if needed, but maybe keep it simple for now */}
+                                <div className="flex-1 flex justify-between items-center group/team">
+                                    <span className="text-sm font-medium">{team.name}</span>
+                                    <div className="opacity-0 group-hover/team:opacity-100 transition-opacity">
+                                        <TeamEditDialog competitionId={competitionId} team={team}>
+                                            <Button variant="ghost" size="icon" className="h-4 w-4">
+                                                <Pencil className="h-3 w-3 text-muted-foreground hover:text-primary" />
+                                            </Button>
+                                        </TeamEditDialog>
+                                    </div>
+                                </div>
                             </div>
                         ))}
                         {unassignedTeams.length === 0 && (
@@ -121,7 +130,27 @@ export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, tea
                                         className="flex items-center gap-2 p-2 bg-secondary/20 border rounded cursor-move hover:bg-secondary/30 transition-all"
                                     >
                                         <GripVertical className="h-4 w-4 text-muted-foreground" />
-                                        <span className="text-sm font-medium flex-1">{team.name}</span>
+                                        <div className="flex-1 flex items-center justify-between group/team gap-2">
+                                            <div className="flex items-center gap-2">
+                                                <div
+                                                    className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold border shadow-sm"
+                                                    style={{
+                                                        backgroundColor: team.primaryColor || '#f1f5f9',
+                                                        color: team.secondaryColor || '#64748b'
+                                                    }}
+                                                >
+                                                    {team.initials || team.name.substring(0, 2).toUpperCase()}
+                                                </div>
+                                                <span className="text-sm font-medium">{team.name}</span>
+                                            </div>
+                                            <div className="opacity-0 group-hover/team:opacity-100 transition-opacity">
+                                                <TeamEditDialog competitionId={competitionId} team={team}>
+                                                    <Button variant="ghost" size="icon" className="h-4 w-4">
+                                                        <Pencil className="h-3 w-3 text-muted-foreground hover:text-primary" />
+                                                    </Button>
+                                                </TeamEditDialog>
+                                            </div>
+                                        </div>
                                     </div>
                                 ))}
                                 {groupTeams.length === 0 && (

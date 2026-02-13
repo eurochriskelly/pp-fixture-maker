@@ -11,6 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Trash2, Plus, RefreshCw, ArrowLeft, Trophy } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { GroupList } from '@/components/GroupList';
+import { CompetitionBadge } from '@/components/CompetitionBadge';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Edit2 } from 'lucide-react';
 
 const Competition = () => {
   const { id } = useParams<{ id: string }>();
@@ -24,7 +27,8 @@ const Competition = () => {
     addManualFixture,
     deleteCompetition,
     deleteFixture,
-    autoAssignGroups
+    autoAssignGroups,
+    updateCompetition
   } = useTournament();
 
   const competition = competitions.find(c => c.id === id);
@@ -88,7 +92,39 @@ const Competition = () => {
       </Button>
 
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">{competition.name}</h1>
+        <div className="flex items-center gap-4">
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className="relative group rounded-full">
+                <CompetitionBadge
+                  code={competition.code || competition.name.substring(0, 2).toUpperCase()}
+                  index={competitions.indexOf(competition)}
+                  size="lg"
+                  className="w-16 h-16 text-xl shadow-md"
+                />
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Edit2 className="w-5 h-5 text-white" />
+                </div>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-60">
+              <div className="space-y-2">
+                <h4 className="font-medium leading-none">Edit Code</h4>
+                <p className="text-sm text-muted-foreground">
+                  Update the badge code.
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    defaultValue={competition.code}
+                    maxLength={3}
+                    onChange={(e) => updateCompetition(competition.id, { code: e.target.value.toUpperCase() })}
+                  />
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+          <h1 className="text-3xl font-bold">{competition.name}</h1>
+        </div>
         <Button variant="destructive" size="sm" onClick={() => {
           if (confirm('Delete this competition?')) {
             deleteCompetition(competition.id);

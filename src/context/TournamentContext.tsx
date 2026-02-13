@@ -12,7 +12,7 @@ interface TournamentContextType {
 
   // Team Actions
   addTeam: (competitionId: string, name?: string) => void;
-  updateTeam: (competitionId: string, teamId: string, name: string) => void;
+  updateTeam: (competitionId: string, teamId: string, updates: Partial<Team>) => void;
   deleteTeam: (competitionId: string, teamId: string) => void;
 
   // Fixture Actions
@@ -36,6 +36,7 @@ interface TournamentContextType {
   autoScheduleMatches: (competitionId: string) => void;
   updateGroup: (competitionId: string, groupId: string, updates: Partial<Group>) => void;
   reorderFixtureToPitch: (fixtureId: string, targetPitchId: string, targetIndex?: number) => void;
+  updateCompetition: (id: string, updates: Partial<Competition>) => void;
 }
 
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
@@ -70,14 +71,28 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [pitches]);
 
   const addCompetition = (name: string) => {
+    // Generate code from initials
+    const words = name.trim().split(/\s+/);
+    let code = '';
+    if (words.length === 1) {
+      code = words[0].substring(0, 2).toUpperCase();
+    } else {
+      code = words.slice(0, 2).map(w => w[0]).join('').toUpperCase();
+    }
+
     const newComp: Competition = {
       id: uuidv4(),
       name,
+      code,
       teams: [],
       groups: [],
       fixtures: []
     };
     setCompetitions([...competitions, newComp]);
+  };
+
+  const updateCompetition = (id: string, updates: Partial<Competition>) => {
+    setCompetitions(competitions.map(c => c.id === id ? { ...c, ...updates } : c));
   };
 
   const deleteCompetition = (id: string) => {
@@ -108,12 +123,12 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
   };
 
-  const updateTeam = (competitionId: string, teamId: string, name: string) => {
+  const updateTeam = (competitionId: string, teamId: string, updates: Partial<Team>) => {
     setCompetitions(competitions.map(comp => {
       if (comp.id === competitionId) {
         return {
           ...comp,
-          teams: comp.teams.map(t => t.id === teamId ? { ...t, name } : t)
+          teams: comp.teams.map(t => t.id === teamId ? { ...t, ...updates } : t)
         };
       }
       return comp;
@@ -484,7 +499,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       updatePitch,
       deletePitch,
       autoScheduleMatches,
-      reorderFixtureToPitch
+      reorderFixtureToPitch,
+      updateCompetition
     }}>
       {children}
     </TournamentContext.Provider>

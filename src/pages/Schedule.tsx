@@ -8,6 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Clock, Users, ArrowLeft, Plus, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { GroupSettingsPanel } from '@/components/GroupSettingsPanel';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 
 const Schedule = () => {
   const {
@@ -126,113 +132,127 @@ const Schedule = () => {
 
       <div className="grid gap-6 lg:grid-cols-4">
         {/* Sidebar: Manage Pitches & Unassigned Fixtures */}
-        <div className="lg:col-span-1 space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Pitches</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col gap-2 mb-4">
-                <Input
-                  placeholder="Pitch Name"
-                  value={newPitchName}
-                  onChange={(e) => setNewPitchName(e.target.value)}
-                />
-                <div className="flex gap-2">
-                  <Input
-                    type="time"
-                    value={pitchStart}
-                    onChange={(e) => setPitchStart(e.target.value)}
-                    className="text-xs"
-                  />
-                  <span className="self-center">-</span>
-                  <Input
-                    type="time"
-                    value={pitchEnd}
-                    onChange={(e) => setPitchEnd(e.target.value)}
-                    className="text-xs"
-                  />
-                </div>
-                <Button className="w-full" onClick={handleAddPitch}>
-                  <Plus className="mr-2 h-4 w-4" /> Add Pitch
-                </Button>
-              </div>
-              <div className="space-y-2">
-                {pitches.map(pitch => (
-                  <div key={pitch.id} className="flex flex-col p-2 bg-slate-100 rounded gap-1">
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium">{pitch.name}</span>
-                      <Button variant="ghost" size="icon" onClick={() => deletePitch(pitch.id)}>
-                        <X className="h-4 w-4 text-muted-foreground" />
-                      </Button>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {pitch.startTime || '09:00'} - {pitch.endTime || '18:00'}
-                    </div>
-                  </div>
-                ))}
-                {pitches.length === 0 && <p className="text-sm text-muted-foreground">No pitches added.</p>}
-              </div>
-            </CardContent>
-          </Card>
+        {/* Sidebar: Manage Pitches & Unassigned Fixtures */}
+        <div className="lg:col-span-1">
+          <Accordion type="single" collapsible className="w-full" defaultValue="unassigned">
 
-
-
-          <GroupSettingsPanel />
-
-          <Card
-            onDragOver={onDragOver}
-            onDrop={onDropUnassigned}
-            className="border-dashed"
-          >
-            <CardHeader>
-              <CardTitle>Unassigned Fixtures ({unassignedFixtures.length})</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
-                {unassignedFixtures.map(fixture => {
-                  const comp = competitions.find(c => c.id === fixture.competitionId);
-                  const home = comp?.teams.find(t => t.id === fixture.homeTeamId);
-                  const away = comp?.teams.find(t => t.id === fixture.awayTeamId);
-
-                  return (
-                    <div
-                      key={fixture.id}
-                      draggable
-                      onDragStart={(e) => onDragStart(e, fixture.id)}
-                      className="p-3 border rounded shadow-sm bg-white text-sm cursor-move hover:bg-slate-50 relative"
-                    >
-                      <div className="font-semibold text-xs text-primary mb-1">{fixture.competitionName}</div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span>{home?.name || 'Bye'}</span>
-                        <span className="text-muted-foreground text-xs">vs</span>
-                        <span>{away?.name || 'Bye'}</span>
-                      </div>
+            <AccordionItem value="pitches">
+              <AccordionTrigger>Manage Pitches</AccordionTrigger>
+              <AccordionContent>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Pitches</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-col gap-2 mb-4">
+                      <Input
+                        placeholder="Pitch Name"
+                        value={newPitchName}
+                        onChange={(e) => setNewPitchName(e.target.value)}
+                      />
                       <div className="flex gap-2">
-                        <Select onValueChange={(val) => handleAssign(fixture.competitionId, fixture.id, val, startTime)}>
-                          <SelectTrigger className="h-8 text-xs w-full">
-                            <SelectValue placeholder="Assign Pitch" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {pitches.map(p => (
-                              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
                         <Input
                           type="time"
-                          className="h-8 w-24 text-xs"
-                          value={startTime}
-                          onChange={(e) => setStartTime(e.target.value)}
+                          value={pitchStart}
+                          onChange={(e) => setPitchStart(e.target.value)}
+                          className="text-xs"
+                        />
+                        <span className="self-center">-</span>
+                        <Input
+                          type="time"
+                          value={pitchEnd}
+                          onChange={(e) => setPitchEnd(e.target.value)}
+                          className="text-xs"
                         />
                       </div>
+                      <Button className="w-full" onClick={handleAddPitch}>
+                        <Plus className="mr-2 h-4 w-4" /> Add Pitch
+                      </Button>
                     </div>
-                  );
-                })}
-                {unassignedFixtures.length === 0 && <p className="text-sm text-muted-foreground">All fixtures assigned!</p>}
-              </div>
-            </CardContent>
-          </Card>
+                    <div className="space-y-2">
+                      {pitches.map(pitch => (
+                        <div key={pitch.id} className="flex flex-col p-2 bg-slate-100 rounded gap-1">
+                          <div className="flex justify-between items-center">
+                            <span className="font-medium">{pitch.name}</span>
+                            <Button variant="ghost" size="icon" onClick={() => deletePitch(pitch.id)}>
+                              <X className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {pitch.startTime || '09:00'} - {pitch.endTime || '18:00'}
+                          </div>
+                        </div>
+                      ))}
+                      {pitches.length === 0 && <p className="text-sm text-muted-foreground">No pitches added.</p>}
+                    </div>
+                  </CardContent>
+                </Card>
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem value="groups">
+              <AccordionTrigger>Group Settings</AccordionTrigger>
+              <AccordionContent>
+                <GroupSettingsPanel />
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem value="unassigned">
+              <AccordionTrigger>Unassigned Fixtures ({unassignedFixtures.length})</AccordionTrigger>
+              <AccordionContent>
+                <Card
+                  onDragOver={onDragOver}
+                  onDrop={onDropUnassigned}
+                  className="border-dashed"
+                >
+                  <CardContent className="pt-6">
+                    <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+                      {unassignedFixtures.map(fixture => {
+                        const comp = competitions.find(c => c.id === fixture.competitionId);
+                        const home = comp?.teams.find(t => t.id === fixture.homeTeamId);
+                        const away = comp?.teams.find(t => t.id === fixture.awayTeamId);
+
+                        return (
+                          <div
+                            key={fixture.id}
+                            draggable
+                            onDragStart={(e) => onDragStart(e, fixture.id)}
+                            className="p-3 border rounded shadow-sm bg-white text-sm cursor-move hover:bg-slate-50 relative"
+                          >
+                            <div className="font-semibold text-xs text-primary mb-1">{comp?.name}</div>
+                            <div className="flex justify-between items-center mb-2">
+                              <span>{home?.name || 'Bye'}</span>
+                              <span className="text-muted-foreground text-xs">vs</span>
+                              <span>{away?.name || 'Bye'}</span>
+                            </div>
+                            <div className="flex gap-2">
+                              <Select onValueChange={(val) => handleAssign(fixture.competitionId, fixture.id, val, startTime)}>
+                                <SelectTrigger className="h-8 text-xs w-full">
+                                  <SelectValue placeholder="Assign Pitch" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {pitches.map(p => (
+                                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Input
+                                type="time"
+                                className="h-8 w-24 text-xs"
+                                value={startTime}
+                                onChange={(e) => setStartTime(e.target.value)}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {unassignedFixtures.length === 0 && <p className="text-sm text-muted-foreground">All fixtures assigned!</p>}
+                    </div>
+                  </CardContent>
+                </Card>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </div>
 
         {/* Main Content: Schedule View */}

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Plus, Trash2, Calendar, Settings, ChevronRight } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { CompetitionBadge } from '@/components/CompetitionBadge';
 
 const Index = () => {
   const { competitions, addCompetition, deleteCompetition } = useTournament();
@@ -38,9 +39,9 @@ const Index = () => {
             </div>
             <h3 className="font-semibold text-lg">Create New Competition</h3>
             <div className="flex gap-2 max-w-xs mx-auto">
-              <Input 
+              <Input
                 id="new-comp-input"
-                placeholder="e.g. Men's U18" 
+                placeholder="e.g. Men's U18"
                 value={newCompName}
                 onChange={(e) => setNewCompName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
@@ -56,19 +57,26 @@ const Index = () => {
           <Card key={comp.id} className="group hover:shadow-lg transition-all">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-xl font-bold truncate pr-4">{comp.name}</CardTitle>
-              <Button 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                variant="ghost"
+                size="icon"
                 className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10"
                 onClick={(e) => {
                   e.stopPropagation();
-                  if(confirm('Delete competition?')) deleteCompetition(comp.id);
+                  if (confirm('Delete competition?')) deleteCompetition(comp.id);
                 }}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
             </CardHeader>
             <CardContent>
+              <div className="flex justify-center mb-6">
+                <CompetitionBadge
+                  code={comp.code || comp.name.substring(0, 2).toUpperCase()}
+                  index={competitions.indexOf(comp)}
+                  size="lg"
+                />
+              </div>
               <div className="text-sm text-muted-foreground mb-4">
                 <div className="flex justify-between py-1 border-b">
                   <span>Teams</span>
@@ -88,7 +96,7 @@ const Index = () => {
           </Card>
         ))}
       </div>
-    </div>
+    </div >
   );
 };
 
