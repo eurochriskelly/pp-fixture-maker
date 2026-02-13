@@ -10,19 +10,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Trash2, Plus, RefreshCw, ArrowLeft, Trophy } from 'lucide-react';
 import { Label } from '@/components/ui/label';
+import { GroupList } from '@/components/GroupList';
 
 const Competition = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { 
-    competitions, 
-    addTeam, 
-    updateTeam, 
-    deleteTeam, 
+  const {
+    competitions,
+    addTeam,
+    updateTeam,
+    deleteTeam,
     generateFixtures,
     addManualFixture,
     deleteCompetition,
-    deleteFixture
+    deleteFixture,
+    autoAssignGroups
   } = useTournament();
 
   const competition = competitions.find(c => c.id === id);
@@ -32,7 +34,8 @@ const Competition = () => {
   }
 
   const [newTeamName, setNewTeamName] = React.useState('');
-  
+  const [numGroups, setNumGroups] = React.useState(2);
+
   // Manual Fixture State
   const [isDialogOpen, setIsDialogOpen] = React.useState(false);
   const [manualStage, setManualStage] = React.useState('Final');
@@ -87,7 +90,7 @@ const Competition = () => {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">{competition.name}</h1>
         <Button variant="destructive" size="sm" onClick={() => {
-          if(confirm('Delete this competition?')) {
+          if (confirm('Delete this competition?')) {
             deleteCompetition(competition.id);
             navigate('/');
           }
@@ -108,44 +111,43 @@ const Competition = () => {
               <CardTitle>Manage Teams</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex gap-2 mb-4">
-                <Input 
-                  placeholder="New Team Name (optional)" 
-                  value={newTeamName}
-                  onChange={(e) => setNewTeamName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddTeam()}
-                />
-                <Button onClick={handleAddTeam}>
-                  <Plus className="mr-2 h-4 w-4" /> Add Team
-                </Button>
+              <div className="flex flex-col md:flex-row gap-4 mb-6 justify-between items-start md:items-center">
+                <div className="flex gap-2 w-full md:w-auto">
+                  <Input
+                    placeholder="New Team Name"
+                    value={newTeamName}
+                    onChange={(e) => setNewTeamName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddTeam()}
+                    className="max-w-xs"
+                  />
+                  <Button onClick={handleAddTeam}>
+                    <Plus className="mr-2 h-4 w-4" /> Add Team
+                  </Button>
+                </div>
+
+                <div className="flex gap-2 items-center w-full md:w-auto">
+                  <div className="text-sm text-muted-foreground whitespace-nowrap">Auto-group:</div>
+                  <Select value={String(numGroups)} onValueChange={(v) => setNumGroups(parseInt(v))}>
+                    <SelectTrigger className="w-[70px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[2, 3, 4, 5, 6, 8].map(n => (
+                        <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button variant="outline" onClick={() => autoAssignGroups(competition.id, numGroups)}>
+                    <RefreshCw className="mr-2 h-4 w-4" /> Auto Group
+                  </Button>
+                </div>
               </div>
 
-              <div className="grid gap-2">
-                {competition.teams.map((team, index) => (
-                  <div key={team.id} className="flex items-center gap-2 p-2 border rounded hover:bg-slate-50">
-                    <span className="w-8 text-muted-foreground font-mono text-sm">
-                      {index + 1}
-                    </span>
-                    <Input 
-                      value={team.name} 
-                      onChange={(e) => updateTeam(competition.id, team.id, e.target.value)}
-                      className="flex-1"
-                    />
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={() => deleteTeam(competition.id, team.id)}
-                    >
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                    </Button>
-                  </div>
-                ))}
-                {competition.teams.length === 0 && (
-                  <div className="text-center text-muted-foreground py-8">
-                    No teams yet. Add some to get started.
-                  </div>
-                )}
-              </div>
+              <GroupList
+                competitionId={competition.id}
+                groups={competition.groups || []}
+                teams={competition.teams}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -170,7 +172,7 @@ const Competition = () => {
                         <Label>Stage Name</Label>
                         <Input value={manualStage} onChange={(e) => setManualStage(e.target.value)} placeholder="e.g. Final" />
                       </div>
-                      
+
                       <div className="grid gap-2">
                         <Label>Home Team</Label>
                         <Select value={manualHome} onValueChange={setManualHome}>
