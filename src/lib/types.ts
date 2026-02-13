@@ -1,6 +1,15 @@
+export interface Group {
+  id: string;
+  name: string;
+  defaultDuration?: number; // minutes
+  defaultSlack?: number; // minutes
+  primaryPitchId?: string;
+}
+
 export interface Team {
   id: string;
   name: string;
+  groupId?: string;
 }
 
 export interface Fixture {
@@ -13,18 +22,22 @@ export interface Fixture {
   duration: number; // minutes
   stage: string; // "Group", "Final", etc.
   description?: string; // Optional description like "1st vs 2nd"
+  groupId?: string; // Optional: Link fixture to a group
 }
 
 export interface Competition {
   id: string;
   name: string;
   teams: Team[];
+  groups: Group[];
   fixtures: Fixture[];
 }
 
 export interface Pitch {
   id: string;
   name: string;
+  startTime?: string; // "HH:mm"
+  endTime?: string; // "HH:mm"
 }
 
 export interface TournamentData {
