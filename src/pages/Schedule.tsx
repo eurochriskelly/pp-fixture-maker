@@ -1347,12 +1347,15 @@ const Schedule = () => {
         {/* Sidebar */}
         <div className="w-80 flex-none flex flex-col gap-4 min-h-0 overflow-y-auto">
           <Accordion type="single" collapsible className="w-full" defaultValue="unassigned">
-            <AccordionItem value="groups">
-              <AccordionTrigger>Group Settings</AccordionTrigger>
-              <AccordionContent>
-                <GroupSettingsPanel />
-              </AccordionContent>
-            </AccordionItem>
+          <AccordionItem value="groups">
+            <AccordionTrigger>Group Settings</AccordionTrigger>
+            <AccordionContent>
+              <p className="text-[11px] text-muted-foreground mb-2 px-1">
+                These defaults guide auto-scheduling and stay scoped to each group.
+              </p>
+              <GroupSettingsPanel />
+            </AccordionContent>
+          </AccordionItem>
 
             <AccordionItem value="unassigned">
               <AccordionTrigger>Unassigned ({unassignedFixtures.length})</AccordionTrigger>
