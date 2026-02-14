@@ -1,12 +1,12 @@
 import React from 'react';
 import { useTournament } from '@/context/TournamentContext';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Clock, ArrowLeft, Plus, X, ChevronDown, RotateCcw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
-import { GroupSettingsPanel } from '@/components/GroupSettingsPanel';
 import {
   Accordion,
   AccordionContent,
@@ -16,6 +16,8 @@ import {
 import { getFixtureSlack, minutesFromMidnight, timeFromMinutes } from '@/utils/scheduleUtils';
 import { Competition, Fixture, Group, Pitch } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { getGroupPitchIds } from '@/lib/groupPitches';
+import { createGroupColorMap, getGroupColorFromMap } from '@/lib/groupColors';
 
 const PIXELS_PER_MINUTE = 2;
 const VIEW_START_HOUR = 8;
@@ -92,6 +94,7 @@ const UnassignedCompetitionSection = ({
   onDragEnd,
   onDropUnassigned,
   handleAssign,
+  showHeader = true,
 }: {
   comp: Competition;
   fixtures: (Fixture & { competitionName: string })[];
@@ -100,15 +103,91 @@ const UnassignedCompetitionSection = ({
   onDragEnd: () => void;
   onDropUnassigned: (e: React.DragEvent) => void;
   handleAssign: (competitionId: string, fixtureId: string, pitchId: string, time: string) => void;
+  showHeader?: boolean;
 }) => {
   const [isOpen, setIsOpen] = React.useState(true);
   const competitionColor = comp.color ?? '#1e293b';
 
-  return (
+  const fixtureList = (
     <div
-      key={comp.id}
-      className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+      className={cn('space-y-2 pb-4 pt-2', {
+        'px-4': showHeader,
+        'px-0': !showHeader,
+      })}
+      onDrop={onDropUnassigned}
     >
+      {fixtures.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-3 py-6 text-center text-sm text-muted-foreground">
+          Drag fixtures here to move them to {comp.name}
+        </div>
+      ) : (
+        fixtures.map((fixture) => {
+          const home = comp.teams.find((t) => t.id === fixture.homeTeamId);
+          const away = comp.teams.find((t) => t.id === fixture.awayTeamId);
+          const isKnockout = fixture.stage && fixture.stage !== 'Group';
+          const homeDisplay =
+            home?.name ||
+            (fixture.homeTeamId === 'TBD'
+              ? 'TBD'
+              : fixture.description?.split(' vs ')[0] || 'Bye');
+          const awayDisplay =
+            away?.name ||
+            (fixture.awayTeamId === 'TBD'
+              ? 'TBD'
+              : fixture.description?.split(' vs ')[1] || 'Bye');
+
+          return (
+            <div
+              key={fixture.id}
+              draggable
+              onDragStart={(e) => onDragStart(e, { kind: 'fixture', id: fixture.id })}
+              onDragEnd={onDragEnd}
+              className={cn(
+                'p-2 border rounded shadow-sm text-xs cursor-move relative',
+                isKnockout ? 'bg-purple-50 hover:bg-purple-100' : 'bg-white hover:bg-slate-50'
+              )}
+            >
+              <div className="flex justify-between items-center gap-2">
+                <span className="truncate">{homeDisplay}</span>
+                <span className="text-muted-foreground text-[10px]">vs</span>
+                <span className="truncate">{awayDisplay}</span>
+              </div>
+              {isKnockout && fixture.description && (
+                <div className="text-[10px] text-purple-600 italic mt-1 truncate">
+                  {fixture.description}
+                </div>
+              )}
+              <div className="mt-2 flex gap-1">
+                <Select
+                  onValueChange={(val) =>
+                    handleAssign(fixture.competitionId, fixture.id, val, DEFAULT_ASSIGN_TIME)
+                  }
+                >
+                  <SelectTrigger className="h-6 text-[10px] w-full">
+                    <SelectValue placeholder="Assign" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {effectivePitches.map((pitch) => (
+                      <SelectItem key={pitch.id} value={pitch.id}>
+                        {pitch.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+
+  if (!showHeader) {
+    return fixtureList;
+  }
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div
         className="absolute inset-y-0 left-0 w-1 rounded-l-2xl"
         style={{ backgroundColor: competitionColor }}
@@ -131,56 +210,7 @@ const UnassignedCompetitionSection = ({
         </span>
       </button>
 
-      {isOpen && (
-        <div className="space-y-2 px-4 pb-4 pt-2" onDrop={onDropUnassigned}>
-          {fixtures.map(fixture => {
-            const home = comp.teams.find(t => t.id === fixture.homeTeamId);
-            const away = comp.teams.find(t => t.id === fixture.awayTeamId);
-            const isKnockout = fixture.stage && fixture.stage !== 'Group';
-            const homeDisplay = home?.name || (fixture.homeTeamId === 'TBD' ? 'TBD' : fixture.description?.split(' vs ')[0] || 'Bye');
-            const awayDisplay = away?.name || (fixture.awayTeamId === 'TBD' ? 'TBD' : fixture.description?.split(' vs ')[1] || 'Bye');
-
-            return (
-              <div
-                key={fixture.id}
-                draggable
-                onDragStart={(e) => onDragStart(e, { kind: 'fixture', id: fixture.id })}
-                onDragEnd={onDragEnd}
-                className={cn('p-2 border rounded shadow-sm text-xs cursor-move relative', isKnockout ? 'bg-purple-50 hover:bg-purple-100' : 'bg-white hover:bg-slate-50')}
-              >
-                <div className="flex justify-between items-center gap-2">
-                  <span className="truncate">{homeDisplay}</span>
-                  <span className="text-muted-foreground text-[10px]">vs</span>
-                  <span className="truncate">{awayDisplay}</span>
-                </div>
-                {isKnockout && fixture.description && (
-                  <div className="text-[10px] text-purple-600 italic mt-1 truncate">
-                    {fixture.description}
-                  </div>
-                )}
-                <div className="mt-2 flex gap-1">
-                  <Select
-                    onValueChange={(val) =>
-                      handleAssign(fixture.competitionId, fixture.id, val, DEFAULT_ASSIGN_TIME)
-                    }
-                  >
-                    <SelectTrigger className="h-6 text-[10px] w-full">
-                      <SelectValue placeholder="Assign" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {effectivePitches.map(pitch => (
-                        <SelectItem key={pitch.id} value={pitch.id}>
-                          {pitch.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {isOpen && fixtureList}
     </div>
   );
 };
@@ -196,6 +226,7 @@ const Schedule = () => {
     autoScheduleMatches,
     resetAllSchedules,
     batchUpdateFixtures,
+    updateGroup,
   } = useTournament();
   const navigate = useNavigate();
 
@@ -242,6 +273,10 @@ const Schedule = () => {
   const [recentlySwappedIds, setRecentlySwappedIds] = React.useState<string[]>([]);
   const changeFeedbackTimeoutRef = React.useRef<number | null>(null);
   const swapFeedbackTimeoutRef = React.useRef<number | null>(null);
+  const [openCompetitionIds, setOpenCompetitionIds] = React.useState<string[]>([]);
+  const [competitionPanelState, setCompetitionPanelState] = React.useState<
+    Record<string, { groups: boolean; fixtures: boolean }>
+  >({});
   const clearDragState = React.useCallback(() => {
     setDraggingItem(null);
     setDropTargetFixtureId(null);
@@ -302,6 +337,26 @@ const Schedule = () => {
   React.useEffect(() => {
     pitchDraftsRef.current = pitchDrafts;
   }, [pitchDrafts]);
+
+  React.useEffect(() => {
+    setOpenCompetitionIds((prev) => {
+      const next = competitions.map((comp) => comp.id);
+      const matches =
+        prev.length === next.length && next.every((id) => prev.includes(id));
+      if (matches) return prev;
+      return next;
+    });
+  }, [competitions]);
+
+  React.useEffect(() => {
+    setCompetitionPanelState((prev) => {
+      const next: Record<string, { groups: boolean; fixtures: boolean }> = {};
+      competitions.forEach((comp) => {
+        next[comp.id] = prev[comp.id] ?? { groups: false, fixtures: false };
+      });
+      return next;
+    });
+  }, [competitions]);
 
   const effectivePitches = React.useMemo(
     () =>
@@ -529,6 +584,46 @@ const Schedule = () => {
         startTime: undefined
       });
     }
+  };
+
+  const toggleCompetition = (competitionId: string) => {
+    setOpenCompetitionIds((prev) =>
+      prev.includes(competitionId)
+        ? prev.filter((id) => id !== competitionId)
+        : [...prev, competitionId]
+    );
+  };
+
+  const toggleGroupPitch = (competitionId: string, group: Group, pitchId: string, enabled: boolean) => {
+    const currentPitchIds = getGroupPitchIds(group);
+    const nextPitchIds = enabled
+      ? Array.from(new Set([...currentPitchIds, pitchId]))
+      : currentPitchIds.filter((id) => id !== pitchId);
+
+    updateGroup(competitionId, group.id, {
+      pitchIds: nextPitchIds,
+      primaryPitchId: nextPitchIds[0],
+    });
+  };
+
+  const toggleCompetitionSection = (competitionId: string, section: 'groups' | 'fixtures') => {
+    setCompetitionPanelState((prev) => {
+      const current = prev[competitionId];
+      if (!current) {
+        return {
+          ...prev,
+          [competitionId]: { groups: section === 'groups', fixtures: section === 'fixtures' },
+        };
+      }
+
+      return {
+        ...prev,
+        [competitionId]: {
+          ...current,
+          [section]: !current[section],
+        },
+      };
+    });
   };
 
   const getDragItemFromDataTransfer = (dataTransfer: DataTransfer): DragItemRef | null => {
@@ -1472,38 +1567,220 @@ const Schedule = () => {
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Sidebar */}
         <div className="w-80 flex-none flex flex-col gap-4 min-h-0 overflow-y-auto">
-          <Accordion type="single" collapsible className="w-full" defaultValue="unassigned">
-          <AccordionItem value="groups">
-            <AccordionTrigger>Group Settings</AccordionTrigger>
-            <AccordionContent>
-              <p className="text-[11px] text-muted-foreground mb-2 px-1">
-                These defaults guide auto-scheduling and stay scoped to each group.
-              </p>
-              <GroupSettingsPanel />
-            </AccordionContent>
-          </AccordionItem>
-
-            <AccordionItem value="unassigned">
-              <AccordionTrigger>Unassigned ({unassignedFixtures.length})</AccordionTrigger>
+          <Accordion type="single" collapsible className="w-full" defaultValue="competitions">
+            <AccordionItem value="competitions">
+              <AccordionTrigger>Competitions</AccordionTrigger>
               <AccordionContent>
-                <div onDragOver={onDragOver} className="space-y-3">
-                  {competitions.filter(comp => unassignedFixtures.some(f => f.competitionId === comp.id)).map(comp => (
-                    <UnassignedCompetitionSection
-                      key={comp.id}
-                      comp={comp}
-                      fixtures={unassignedFixtures.filter(f => f.competitionId === comp.id)}
-                      effectivePitches={effectivePitches}
-                      onDragStart={onDragStart}
-                      onDragEnd={onDragEnd}
-                      onDropUnassigned={onDropUnassigned}
-                      handleAssign={handleAssign}
-                    />
-                  ))}
-                  {unassignedFixtures.length === 0 && (
-                    <div className="text-center py-4 text-sm text-muted-foreground">
-                      No unassigned fixtures
-                    </div>
-                  )}
+                <div className="space-y-3 pt-2">
+                  {competitions.map((comp) => {
+                    const groups = comp.groups ?? [];
+                    const compUnassignedFixtures = unassignedFixtures.filter(
+                      (fixture) => fixture.competitionId === comp.id
+                    );
+                    const competitionColor = comp.color ?? '#1e293b';
+                    const isOpen = openCompetitionIds.includes(comp.id);
+                    const groupColorMap = createGroupColorMap(groups);
+
+                    return (
+                      <div
+                        key={comp.id}
+                        className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                      >
+                        <div
+                          className="absolute inset-y-0 left-0 w-1 rounded-l-2xl"
+                          style={{ backgroundColor: competitionColor }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => toggleCompetition(comp.id)}
+                          className="w-full flex items-center justify-between gap-2 border-b px-4 py-3 text-sm font-semibold text-slate-900"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-base font-semibold text-slate-900">{comp.name}</span>
+                            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                              {comp.fixtures.length} FIXTURES
+                            </span>
+                          </div>
+                          <ChevronDown
+                            className={cn('h-4 w-4 transition-transform duration-200', {
+                              'rotate-180': isOpen,
+                            })}
+                          />
+                        </button>
+                        {isOpen && (
+                          <div className="space-y-5 px-4 pb-4 pt-3">
+                            <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50/80">
+                              <button
+                                type="button"
+                                onClick={() => toggleCompetitionSection(comp.id, 'groups')}
+                                className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-slate-900"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span>Groups</span>
+                                  <span className="text-[11px] font-normal text-muted-foreground">
+                                    ({groups.length})
+                                  </span>
+                                </div>
+                                <ChevronDown
+                                  className={cn('h-4 w-4 transition-transform duration-200', {
+                                    'rotate-180': competitionPanelState[comp.id]?.groups,
+                                  })}
+                                />
+                              </button>
+                              {competitionPanelState[comp.id]?.groups && (
+                                <div className="space-y-2 px-4 pb-3">
+                                  {groups.length > 0 ? (
+                                    groups.map((group, groupIndex) => {
+                                      const selectedPitchIds = getGroupPitchIds(group);
+                                      const groupColor = getGroupColorFromMap(groupColorMap, group.id);
+
+                                      return (
+                                        <div
+                                          key={group.id}
+                                          className="rounded-xl border border-slate-200 bg-white p-3 shadow-inner space-y-3 text-xs"
+                                        >
+                                          <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                              <span
+                                                className="rounded-[12px] px-3 py-1 text-sm font-semibold uppercase text-white shadow-sm"
+                                                style={{ backgroundColor: groupColor }}
+                                              >
+                                                GP. {groupIndex + 1}
+                                              </span>
+                                              <span className="text-sm font-semibold text-slate-900">
+                                                {group.name || `Group ${groupIndex + 1}`}
+                                              </span>
+                                            </div>
+                                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                              {selectedPitchIds.length} assigned
+                                            </span>
+                                          </div>
+                                          <div className="grid gap-3 sm:grid-cols-2 text-[11px]">
+                                            <div className="flex flex-col space-y-1">
+                                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                                Duration (mins)
+                                              </span>
+                                              <Input
+                                                type="number"
+                                                min={1}
+                                                value={group.defaultDuration ?? DEFAULT_GROUP_DURATION}
+                                                onChange={(event) => {
+                                                  const nextDuration = Number.parseInt(event.target.value, 10);
+                                                  if (Number.isNaN(nextDuration)) return;
+                                                  updateGroup(comp.id, group.id, {
+                                                    defaultDuration: Math.max(1, nextDuration),
+                                                  });
+                                                }}
+                                                className="h-8 w-full text-xs"
+                                              />
+                                            </div>
+                                            <div className="flex flex-col space-y-1">
+                                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                                Slack (mins)
+                                              </span>
+                                              <Input
+                                                type="number"
+                                                min={0}
+                                                value={group.defaultSlack ?? DEFAULT_GROUP_SLACK}
+                                                onChange={(event) => {
+                                                  const nextSlack = Number.parseInt(event.target.value, 10);
+                                                  if (Number.isNaN(nextSlack)) return;
+                                                  updateGroup(comp.id, group.id, {
+                                                    defaultSlack: Math.max(0, nextSlack),
+                                                  });
+                                                }}
+                                                className="h-8 w-full text-xs"
+                                              />
+                                            </div>
+                                          </div>
+                                          <div className="space-y-2">
+                                            <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-muted-foreground">
+                                              <span>Pitches</span>
+                                              <span>{selectedPitchIds.length} assigned</span>
+                                            </div>
+                                            {pitches.length === 0 ? (
+                                              <div className="rounded-md border border-dashed border-slate-200 px-2 py-1 text-[11px] text-muted-foreground">
+                                                Create pitches to assign here.
+                                              </div>
+                                            ) : (
+                                              <div className="grid gap-2 sm:grid-cols-2">
+                                                {pitches.map((pitch) => (
+                                                  <label
+                                                    key={pitch.id}
+                                                    className="flex items-center gap-2 rounded-md border border-transparent px-2 py-1 text-[12px] transition-colors hover:border-slate-200"
+                                                  >
+                                                    <Checkbox
+                                                      checked={selectedPitchIds.includes(pitch.id)}
+                                                      onCheckedChange={(checked) =>
+                                                        toggleGroupPitch(comp.id, group, pitch.id, checked === true)
+                                                      }
+                                                    />
+                                                    <span className="truncate">{pitch.name}</span>
+                                                  </label>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })
+                                  ) : (
+                                    <div className="rounded-md border border-dashed border-slate-200 px-2 py-1 text-[11px] text-muted-foreground">
+                                      No groups defined
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50/80">
+                              <button
+                                type="button"
+                                onClick={() => toggleCompetitionSection(comp.id, 'fixtures')}
+                                className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-slate-900"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span>Fixtures</span>
+                                  <span className="text-[11px] font-normal text-muted-foreground">
+                                    ({comp.fixtures.length - compUnassignedFixtures.length} assigned / {comp.fixtures.length})
+                                  </span>
+                                </div>
+                                <ChevronDown
+                                  className={cn('h-4 w-4 transition-transform duration-200', {
+                                    'rotate-180': competitionPanelState[comp.id]?.fixtures,
+                                  })}
+                                />
+                              </button>
+                              {competitionPanelState[comp.id]?.fixtures && (
+                                <div
+                                  onDragOver={onDragOver}
+                                  className="space-y-2 px-4 pb-3"
+                                >
+                                  <div className="flex items-center justify-between text-[9px] uppercase tracking-wide text-muted-foreground">
+                                    <span>Unassigned</span>
+                                    <span className="text-[11px] font-semibold text-slate-900">
+                                      {compUnassignedFixtures.length}
+                                    </span>
+                                  </div>
+                                  <UnassignedCompetitionSection
+                                    key={`${comp.id}-unassigned`}
+                                    comp={comp}
+                                    fixtures={compUnassignedFixtures}
+                                    effectivePitches={effectivePitches}
+                                    onDragStart={onDragStart}
+                                    onDragEnd={onDragEnd}
+                                    onDropUnassigned={onDropUnassigned}
+                                    handleAssign={handleAssign}
+                                    showHeader={false}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </AccordionContent>
             </AccordionItem>
