@@ -926,7 +926,8 @@ const Schedule = () => {
   const getFixtureBlockMinutes = (fixture: Fixture, groups: Group[]) => {
     const duration = fixture.duration || DEFAULT_GROUP_DURATION;
     const slack = getFixtureSlack(fixture, groups);
-    return duration + slack;
+    const slackBefore = fixture.slackBefore || 0;
+    return slackBefore + duration + slack;
   };
 
   const getTimelineBlockMinutes = (timelineItem: PitchTimelineItem) => {
@@ -947,16 +948,18 @@ const Schedule = () => {
     const breakUpdates: BreakBatchUpdate[] = [];
 
     ordered.forEach((timelineItem) => {
-      const startTime = timeFromMinutes(cursor);
-      cursor += getTimelineBlockMinutes(timelineItem);
-
       if (timelineItem.kind === 'fixture') {
+        const slackBefore = timelineItem.item.fixture.slackBefore || 0;
+        const startTime = timeFromMinutes(cursor + slackBefore);
+        cursor += getTimelineBlockMinutes(timelineItem);
         fixtureUpdates.push({
           competitionId: timelineItem.item.competitionId,
           fixtureId: timelineItem.item.fixture.id,
           updates: { pitchId, startTime },
         });
       } else {
+        const startTime = timeFromMinutes(cursor);
+        cursor += getTimelineBlockMinutes(timelineItem);
         breakUpdates.push({
           breakId: timelineItem.item.id,
           updates: { pitchId, startTime },
@@ -1760,12 +1763,14 @@ const Schedule = () => {
                         const startMins = minutesFromMidnight(fixture.startTime || DEFAULT_ASSIGN_TIME);
                         const duration = fixture.duration || DEFAULT_GROUP_DURATION;
                         const slack = getFixtureSlack(fixture, groups);
+                        const slackBefore = fixture.slackBefore || 0;
 
-                        const top = (startMins - viewStartMins) * PIXELS_PER_MINUTE;
+                        const top = (startMins - slackBefore - viewStartMins) * PIXELS_PER_MINUTE;
+                        const heightSlackBefore = slackBefore * PIXELS_PER_MINUTE;
                         const heightMatch = duration * PIXELS_PER_MINUTE;
                         const heightSlack = slack * PIXELS_PER_MINUTE;
 
-                        if (top < 0 && top + heightMatch + heightSlack < 0) return null;
+                        if (top < 0 && top + heightSlackBefore + heightMatch + heightSlack < 0) return null;
 
                         return (
                           <div
@@ -1785,7 +1790,7 @@ const Schedule = () => {
                             )}
                             style={{
                               top,
-                              height: heightMatch + heightSlack,
+                              height: heightSlackBefore + heightMatch + heightSlack,
                               borderLeft: `0.6rem solid ${comp?.color || '#1e293b'}`,
                               borderTop: '1px solid #e2e8f0',
                               borderRight: '1px solid #e2e8f0',
@@ -1808,6 +1813,20 @@ const Schedule = () => {
                               <div className="absolute top-0.5 left-0.5 rounded bg-amber-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
                                 Moved
                               </div>
+                            )}
+
+                            {/* Pre-match Slack Area (dependency wait) */}
+                            {heightSlackBefore > 0 && (
+                              <div
+                                className="w-full border-b"
+                                style={{
+                                  height: heightSlackBefore,
+                                  borderBottomColor: isKnockout ? '#ddd6fe' : '#bfdbfe',
+                                  background: isKnockout
+                                    ? 'repeating-linear-gradient(-45deg, #faf5ff, #faf5ff 2px, #f3e8ff 2px, #f3e8ff 4px)'
+                                    : 'repeating-linear-gradient(-45deg, #f8fafc, #f8fafc 2px, #f1f5f9 2px, #f1f5f9 4px)'
+                                }}
+                              />
                             )}
 
                             {/* Match Duration Area */}

@@ -499,6 +499,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       requestedStart: number;
       duration: number;
       slack: number;
+      slackBefore: number;
       order: number;
     };
 
@@ -522,6 +523,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           requestedStart: parseTimeToMinutes(fixture.startTime, pitchStart),
           duration,
           slack,
+          slackBefore: fixture.slackBefore || 0,
           order,
         };
 
@@ -550,7 +552,9 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
 
       pitchFixtures.forEach((item) => {
-        const startMinutes = Math.max(cursor, item.requestedStart);
+        // Respect slackBefore: the fixture can't start until cursor + slackBefore
+        const effectiveEarliest = cursor + item.slackBefore;
+        const startMinutes = Math.max(effectiveEarliest, item.requestedStart);
         const updatesForCompetition =
           updatesByCompetitionId.get(item.competitionId) || new Map<string, Partial<Fixture>>();
 
@@ -682,10 +686,10 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             ? Array.from(usedPitchIds)
             : pitches.map((p) => p.id);
 
-          // Find the latest end time across all pitches after group stage
+          // Find the latest end time across ALL pitches after group stage
+          // This ensures no knockout starts before every group game (+ slack) has finished
           let groupStageEndTime = 0;
-          for (const pitchId of knockoutPitchPool) {
-            const cursor = pitchCursorById.get(pitchId) ?? 0;
+          for (const [, cursor] of pitchCursorById) {
             groupStageEndTime = Math.max(groupStageEndTime, cursor);
           }
 
@@ -707,12 +711,12 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           for (const tier of sortedTiers) {
             const tierFixtures = fixturesByTier.get(tier)!;
 
-            // Ensure all pitch cursors are at least at the tier minimum start time
+            // Record natural cursor positions before forcing to tier minimum
+            // The gap between natural end and forced start becomes slackBefore
+            const naturalCursorById = new Map<string, number>();
             for (const pitchId of knockoutPitchPool) {
-              const current = pitchCursorById.get(pitchId) ?? 0;
-              if (current < tierMinStartTime) {
-                pitchCursorById.set(pitchId, tierMinStartTime);
-              }
+              naturalCursorById.set(pitchId, pitchCursorById.get(pitchId) ?? 0);
+              pitchCursorById.set(pitchId, Math.max(pitchCursorById.get(pitchId) ?? 0, tierMinStartTime));
             }
 
             // Deal this tier's fixtures across the knockout pitch pool
@@ -724,10 +728,14 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               nextPitchIndex += 1;
 
               const cursor = pitchCursorById.get(pitchId) ?? tierMinStartTime;
+              const naturalEnd = naturalCursorById.get(pitchId) ?? 0;
+              const slackBefore = Math.max(0, cursor - naturalEnd);
+
               fixtureUpdates.set(entry.fixture.id, {
                 pitchId,
                 startTime: toTimeString(cursor),
                 duration: entry.duration,
+                slackBefore,
               });
 
               const endTime = cursor + entry.duration + entry.slack;
@@ -735,7 +743,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               tierMaxEndTime = Math.max(tierMaxEndTime, endTime);
             }
 
-            // Next tier can't start until this tier finishes
+            // Next tier can't start until this tier finishes (including slack)
             tierMinStartTime = tierMaxEndTime;
           }
         }
