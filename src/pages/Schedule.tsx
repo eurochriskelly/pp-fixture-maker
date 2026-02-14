@@ -132,6 +132,7 @@ const Schedule = () => {
   const [dropTargetFixtureId, setDropTargetFixtureId] = React.useState<string | null>(null);
   const [insertTarget, setInsertTarget] = React.useState<{ pitchId: string; index: number } | null>(null);
   const [pendingAutoScheduleReflow, setPendingAutoScheduleReflow] = React.useState(false);
+  const [pendingPitchStartReflowIds, setPendingPitchStartReflowIds] = React.useState<string[]>([]);
   const hasCapturedGroupTimingRef = React.useRef(false);
   const previousGroupTimingRef = React.useRef<Map<string, { duration: number; slack: number }>>(new Map());
   const [recentlyChangedIds, setRecentlyChangedIds] = React.useState<string[]>([]);
@@ -252,6 +253,9 @@ const Schedule = () => {
 
         if (nextStart !== (original.startTime ?? DEFAULT_PITCH_START)) {
           updates.startTime = nextStart;
+          setPendingPitchStartReflowIds((current) =>
+            current.includes(pitchId) ? current : [...current, pitchId]
+          );
         }
         if (nextEnd !== (original.endTime ?? DEFAULT_PITCH_END)) {
           updates.endTime = nextEnd;
@@ -1245,6 +1249,54 @@ const Schedule = () => {
   }, [
     pendingAutoScheduleReflow,
     effectivePitches,
+    pitchBreaks,
+    buildPitchTimelineUpdates,
+    listPitchTimeline,
+    getActuallyChangedFixtureIds,
+    applyPitchTimelineUpdates,
+    showChangeFeedback,
+  ]);
+
+  React.useEffect(() => {
+    if (pendingPitchStartReflowIds.length === 0) return;
+
+    const pitchIds = Array.from(new Set(pendingPitchStartReflowIds));
+    setPendingPitchStartReflowIds([]);
+
+    const mergedFixtureUpdates: FixtureBatchUpdate[] = [];
+    const mergedBreakUpdates: BreakBatchUpdate[] = [];
+
+    pitchIds.forEach((pitchId) => {
+      const updates = buildPitchTimelineUpdates(pitchId, listPitchTimeline(pitchId));
+      mergedFixtureUpdates.push(...updates.fixtureUpdates);
+      mergedBreakUpdates.push(...updates.breakUpdates);
+    });
+
+    const changedFixtureIds = new Set(getActuallyChangedFixtureIds(mergedFixtureUpdates));
+    const changedFixtureUpdates = mergedFixtureUpdates.filter((update) => changedFixtureIds.has(update.fixtureId));
+
+    const currentBreakById = new Map(pitchBreaks.map((pitchBreak) => [pitchBreak.id, pitchBreak]));
+    const changedBreakUpdates = mergedBreakUpdates.filter((update) => {
+      const current = currentBreakById.get(update.breakId);
+      if (!current) return false;
+
+      const hasPitchUpdate = Object.prototype.hasOwnProperty.call(update.updates, 'pitchId');
+      const hasStartUpdate = Object.prototype.hasOwnProperty.call(update.updates, 'startTime');
+      const pitchChanged = hasPitchUpdate && current.pitchId !== update.updates.pitchId;
+      const startChanged = hasStartUpdate && current.startTime !== update.updates.startTime;
+
+      return pitchChanged || startChanged;
+    });
+
+    if (changedFixtureUpdates.length === 0 && changedBreakUpdates.length === 0) return;
+
+    applyPitchTimelineUpdates({
+      fixtureUpdates: changedFixtureUpdates,
+      breakUpdates: changedBreakUpdates,
+    });
+    showChangeFeedback(Array.from(changedFixtureIds));
+  }, [
+    pendingPitchStartReflowIds,
     pitchBreaks,
     buildPitchTimelineUpdates,
     listPitchTimeline,
