@@ -580,7 +580,7 @@ const Schedule = () => {
     updateFixture(competitionId, fixtureId, {
       pitchId,
       startTime: time
-    });
+    }, true);
   };
 
   const handleUnassign = (fixtureId: string) => {
@@ -589,7 +589,7 @@ const Schedule = () => {
       updateFixture(comp.id, fixtureId, {
         pitchId: undefined,
         startTime: undefined
-      });
+      }, true);
     }
   };
 
@@ -1058,7 +1058,7 @@ const Schedule = () => {
 
   const applyPitchTimelineUpdates = (updates: { fixtureUpdates: FixtureBatchUpdate[]; breakUpdates: BreakBatchUpdate[] }) => {
     if (updates.fixtureUpdates.length > 0) {
-      batchUpdateFixtures(updates.fixtureUpdates);
+      batchUpdateFixtures(updates.fixtureUpdates, true);
     }
 
     if (updates.breakUpdates.length > 0) {
