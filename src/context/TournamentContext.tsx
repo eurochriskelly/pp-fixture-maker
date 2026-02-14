@@ -359,14 +359,32 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addFixtures = (competitionId: string, newFixtures: Omit<Fixture, 'id' | 'competitionId'>[]) => {
     setCompetitions(prev => prev.map(comp => {
       if (comp.id === competitionId) {
-        const fixturesToAdd = newFixtures.map(f => ({
-          ...f,
-          id: uuidv4(),
-          competitionId
-        }));
+        // Upsert logic: if a fixture has a matchId, check if it already exists
+        const fixturesToAdd: Fixture[] = [];
+        const fixturesToUpdate = new Map<string, Partial<Fixture>>();
+
+        newFixtures.forEach(newFix => {
+          if (newFix.matchId) {
+            const existing = comp.fixtures.find(f => f.matchId === newFix.matchId);
+            if (existing) {
+              fixturesToUpdate.set(existing.id, newFix);
+            } else {
+              fixturesToAdd.push({ ...newFix, id: uuidv4(), competitionId });
+            }
+          } else {
+            fixturesToAdd.push({ ...newFix, id: uuidv4(), competitionId });
+          }
+        });
+
         return {
           ...comp,
-          fixtures: [...comp.fixtures, ...fixturesToAdd]
+          fixtures: comp.fixtures.map(f => {
+            const updates = fixturesToUpdate.get(f.id);
+            if (updates) {
+              return { ...f, ...updates };
+            }
+            return f;
+          }).concat(fixturesToAdd)
         };
       }
       return comp;
