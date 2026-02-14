@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Settings } from 'lucide-react';
+import { getGroupPitchIds } from '@/lib/groupPitches';
 
 interface GroupSettingsProps {
     competitionId: string;
@@ -19,13 +20,15 @@ export const GroupSettings: React.FC<GroupSettingsProps> = ({ competitionId, gro
     const [open, setOpen] = useState(false);
     const [duration, setDuration] = useState(group.defaultDuration || 20);
     const [slack, setSlack] = useState(group.defaultSlack || 5);
-    const [pitchId, setPitchId] = useState(group.primaryPitchId || '');
+    const [pitchId, setPitchId] = useState(getGroupPitchIds(group)[0] || 'none');
 
     const handleSave = () => {
+        const nextPitchIds = pitchId === 'none' ? [] : [pitchId];
         updateGroup(competitionId, group.id, {
             defaultDuration: duration,
             defaultSlack: slack,
-            primaryPitchId: pitchId || undefined
+            pitchIds: nextPitchIds,
+            primaryPitchId: nextPitchIds[0]
         });
         setOpen(false);
     };

@@ -7,6 +7,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Trash2, GripVertical, Plus, Pencil } from 'lucide-react';
 import { TeamEditDialog } from '@/components/TeamEditDialog';
+import {
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { getGroupPitchIds } from '@/lib/groupPitches';
 
 interface GroupListProps {
     competitionId: string;
@@ -15,7 +23,7 @@ interface GroupListProps {
 }
 
 export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, teams }) => {
-    const { moveTeamToGroup, deleteGroup, createGroup, deleteTeam, updateTeam } = useTournament();
+    const { moveTeamToGroup, deleteGroup, createGroup, updateGroup, pitches } = useTournament();
     const [newGroupName, setNewGroupName] = useState('');
 
     const onDragStart = (e: React.DragEvent, teamId: string) => {
@@ -44,6 +52,18 @@ export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, tea
     };
 
     const unassignedTeams = teams.filter(t => !t.groupId);
+
+    const toggleGroupPitch = (group: Group, pitchId: string, enabled: boolean) => {
+        const currentPitchIds = getGroupPitchIds(group);
+        const nextPitchIds = enabled
+            ? Array.from(new Set([...currentPitchIds, pitchId]))
+            : currentPitchIds.filter((id) => id !== pitchId);
+
+        updateGroup(competitionId, group.id, {
+            pitchIds: nextPitchIds,
+            primaryPitchId: nextPitchIds[0],
+        });
+    };
 
     return (
         <div className="space-y-6">
@@ -102,6 +122,7 @@ export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, tea
                 {/* Groups */}
                 {groups.map(group => {
                     const groupTeams = teams.filter(t => t.groupId === group.id);
+                    const selectedPitchIds = getGroupPitchIds(group);
                     return (
                         <Card
                             key={group.id}
@@ -111,14 +132,43 @@ export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, tea
                             <CardHeader className="pb-3">
                                 <CardTitle className="text-sm font-medium flex justify-between items-center">
                                     <span>{group.name} ({groupTeams.length})</span>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                                        onClick={() => deleteGroup(competitionId, group.id)}
-                                    >
-                                        <Trash2 className="h-3 w-3" />
-                                    </Button>
+                                    <div className="flex items-center gap-1">
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button variant="outline" size="sm" className="h-6 px-2 text-[10px] font-normal">
+                                                    {selectedPitchIds.length > 0
+                                                        ? `${selectedPitchIds.length} pitch${selectedPitchIds.length === 1 ? '' : 'es'}`
+                                                        : 'Pitches'}
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end" className="w-44">
+                                                {pitches.length === 0 ? (
+                                                    <DropdownMenuItem disabled>No pitches yet</DropdownMenuItem>
+                                                ) : (
+                                                    pitches.map((pitch) => (
+                                                        <DropdownMenuCheckboxItem
+                                                            key={pitch.id}
+                                                            checked={selectedPitchIds.includes(pitch.id)}
+                                                            onCheckedChange={(checked) =>
+                                                                toggleGroupPitch(group, pitch.id, checked === true)
+                                                            }
+                                                            onSelect={(event) => event.preventDefault()}
+                                                        >
+                                                            {pitch.name}
+                                                        </DropdownMenuCheckboxItem>
+                                                    ))
+                                                )}
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                            onClick={() => deleteGroup(competitionId, group.id)}
+                                        >
+                                            <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                    </div>
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-2 min-h-[100px]">
