@@ -5,10 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Clock, Plus, X, ChevronDown, RotateCcw, Calendar, Users, GripVertical, ArrowLeft } from 'lucide-react';
+import { Clock, Plus, X, ChevronDown, ChevronRight, RotateCcw, Calendar, Users, GripVertical, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { getFixtureSlack, minutesFromMidnight, timeFromMinutes } from '@/utils/scheduleUtils';
@@ -16,7 +14,17 @@ import { Competition, Fixture, Group, Pitch } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { getGroupPitchIds } from '@/lib/groupPitches';
 import { createGroupColorMap, getGroupColorFromMap } from '@/lib/groupColors';
-import { SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
+import { CompetitionBadge } from '@/components/CompetitionBadge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
+} from "@/components/ui/sidebar";
 
 const PIXELS_PER_MINUTE = 2;
 const VIEW_START_HOUR = 8;
@@ -585,12 +593,13 @@ const Schedule = () => {
     }
   };
 
-  const toggleCompetition = (competitionId: string) => {
-    setOpenCompetitionIds((prev) =>
-      prev.includes(competitionId)
-        ? prev.filter((id) => id !== competitionId)
-        : [...prev, competitionId]
-    );
+  const setCompetitionOpen = (competitionId: string, open: boolean) => {
+    setOpenCompetitionIds((prev) => {
+      const has = prev.includes(competitionId);
+      if (open && !has) return [...prev, competitionId];
+      if (!open && has) return prev.filter((id) => id !== competitionId);
+      return prev;
+    });
   };
 
   const toggleGroupPitch = (competitionId: string, group: Group, pitchId: string, enabled: boolean) => {
@@ -1538,94 +1547,120 @@ const Schedule = () => {
       </SidebarGroup>
 
       <SidebarGroup className="mt-4">
-        <SidebarGroupLabel>Unassigned & Groups</SidebarGroupLabel>
-        <div className="space-y-3 px-2">
-          {competitions.length === 0 ? (
-             <div className="text-xs text-muted-foreground p-2">No competitions.</div>
-          ) : (
-            competitions.map((comp) => {
+        <SidebarGroupLabel>Competitions</SidebarGroupLabel>
+        {competitions.length === 0 ? (
+          <div className="text-xs text-muted-foreground px-2 py-1">No competitions.</div>
+        ) : (
+          <SidebarMenu>
+            {competitions.map((comp) => {
               const groups = comp.groups ?? [];
               const compUnassignedFixtures = unassignedFixtures.filter(
                 (fixture) => fixture.competitionId === comp.id
               );
-              const competitionColor = comp.color ?? '#1e293b';
               const isOpen = openCompetitionIds.includes(comp.id);
               const groupColorMap = createGroupColorMap(groups);
 
               return (
-                 <div key={comp.id} className="border rounded-md bg-background overflow-hidden">
-                    <div className="h-1 w-full" style={{ backgroundColor: competitionColor }} />
-                    <div 
-                      className="p-2 flex items-center justify-between cursor-pointer hover:bg-muted/50"
-                      onClick={() => toggleCompetition(comp.id)}
-                    >
-                       <span className="font-semibold text-xs truncate">{comp.name}</span>
-                       <ChevronDown className={cn("h-3 w-3 transition-transform", isOpen && "rotate-180")} />
-                    </div>
-                    
-                    {isOpen && (
-                      <div className="p-2 bg-muted/20 space-y-2">
-                         {/* Groups Toggles */}
-                         <div className="space-y-1">
-                            <div className="text-[10px] font-bold text-muted-foreground uppercase">Groups</div>
-                             {groups.map(group => {
+                <Collapsible
+                  key={comp.id}
+                  open={isOpen}
+                  onOpenChange={(open) => setCompetitionOpen(comp.id, open)}
+                  asChild
+                  className="group/collapsible"
+                >
+                  <SidebarMenuItem>
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton tooltip={comp.name}>
+                        <CompetitionBadge
+                          code={comp.code}
+                          color={comp.color}
+                          size="sm"
+                          className="h-5 w-5 text-[9px]"
+                        />
+                        <span>{comp.name}</span>
+                        <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenuSub>
+                        <SidebarMenuSubItem>
+                          <div className="space-y-3 px-2 pb-3 pt-1">
+                            <div className="space-y-1">
+                              <div className="text-[10px] font-bold text-muted-foreground uppercase">Groups</div>
+                              {groups.map((group) => {
                                 const selectedPitchIds = getGroupPitchIds(group);
                                 const groupColor = getGroupColorFromMap(groupColorMap, group.id);
                                 return (
                                   <div key={group.id} className="text-[10px] border rounded p-1.5 bg-background">
                                     <div className="flex items-center gap-1 mb-1">
-                                      <span className="w-2 h-2 rounded-full" style={{backgroundColor: groupColor}} />
+                                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: groupColor }} />
                                       <span className="font-medium truncate">{group.name}</span>
                                     </div>
                                     <div className="flex gap-1 mb-1">
-                                       <Input 
-                                          className="h-5 text-[9px] px-1 w-12" 
-                                          value={group.defaultDuration ?? DEFAULT_GROUP_DURATION}
-                                          onChange={e => updateGroup(comp.id, group.id, { defaultDuration: parseInt(e.target.value) || 20 })} 
-                                       />
-                                       <span className="text-[9px] text-muted-foreground self-center">min</span>
+                                      <Input
+                                        className="h-5 text-[9px] px-1 w-12"
+                                        value={group.defaultDuration ?? DEFAULT_GROUP_DURATION}
+                                        onChange={(e) =>
+                                          updateGroup(comp.id, group.id, {
+                                            defaultDuration: parseInt(e.target.value) || 20,
+                                          })
+                                        }
+                                      />
+                                      <span className="text-[9px] text-muted-foreground self-center">min</span>
                                     </div>
                                     <div className="flex flex-wrap gap-1">
-                                       {pitches.map(p => (
-                                          <div key={p.id} 
-                                            className={cn("px-1 rounded cursor-pointer", selectedPitchIds.includes(p.id) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}
-                                            onClick={() => toggleGroupPitch(comp.id, group, p.id, !selectedPitchIds.includes(p.id))}
-                                          >
-                                             {p.name}
-                                          </div>
-                                       ))}
+                                      {pitches.map((p) => (
+                                        <div
+                                          key={p.id}
+                                          className={cn(
+                                            'px-1 rounded cursor-pointer',
+                                            selectedPitchIds.includes(p.id)
+                                              ? 'bg-primary text-primary-foreground'
+                                              : 'bg-muted text-muted-foreground'
+                                          )}
+                                          onClick={() =>
+                                            toggleGroupPitch(comp.id, group, p.id, !selectedPitchIds.includes(p.id))
+                                          }
+                                        >
+                                          {p.name}
+                                        </div>
+                                      ))}
                                     </div>
                                   </div>
-                                )
-                             })}
-                         </div>
+                                );
+                              })}
+                            </div>
 
-                         {/* Unassigned Fixtures */}
-                         <div className="space-y-1">
-                            <div className="text-[10px] font-bold text-muted-foreground uppercase flex justify-between">
-                              <span>Unscheduled</span>
-                              <Badge variant="secondary" className="h-4 px-1 text-[9px]">{compUnassignedFixtures.length}</Badge>
-                            </div>
-                            <div onDragOver={onDragOver}>
+                            <div className="space-y-1">
+                              <div className="text-[10px] font-bold text-muted-foreground uppercase flex justify-between">
+                                <span>Unassigned</span>
+                                <Badge variant="secondary" className="h-4 px-1 text-[9px]">
+                                  {compUnassignedFixtures.length}
+                                </Badge>
+                              </div>
+                              <div onDragOver={onDragOver}>
                                 <UnassignedCompetitionSection
-                                    comp={comp}
-                                    fixtures={compUnassignedFixtures}
-                                    effectivePitches={effectivePitches}
-                                    onDragStart={onDragStart}
-                                    onDragEnd={onDragEnd}
-                                    onDropUnassigned={onDropUnassigned}
-                                    handleAssign={handleAssign}
-                                    showHeader={false}
-                                  />
+                                  comp={comp}
+                                  fixtures={compUnassignedFixtures}
+                                  effectivePitches={effectivePitches}
+                                  onDragStart={onDragStart}
+                                  onDragEnd={onDragEnd}
+                                  onDropUnassigned={onDropUnassigned}
+                                  handleAssign={handleAssign}
+                                  showHeader={false}
+                                />
+                              </div>
                             </div>
-                         </div>
-                      </div>
-                    )}
-                 </div>
+                          </div>
+                        </SidebarMenuSubItem>
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
+                  </SidebarMenuItem>
+                </Collapsible>
               );
-            })
-          )}
-        </div>
+            })}
+          </SidebarMenu>
+        )}
       </SidebarGroup>
     </>
   );

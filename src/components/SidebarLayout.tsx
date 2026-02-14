@@ -154,7 +154,7 @@ export default function SidebarLayout() {
                               isActive={location.pathname === `/competition/${comp.id}/groups`}
                             >
                               <Link to={`/competition/${comp.id}/groups`}>
-                                <span>Groups</span>
+                                <span>Teams</span>
                               </Link>
                             </SidebarMenuSubButton>
                           </SidebarMenuSubItem>
@@ -165,16 +165,6 @@ export default function SidebarLayout() {
                             >
                               <Link to={`/competition/${comp.id}/fixtures`}>
                                 <span>Fixtures</span>
-                              </Link>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                          <SidebarMenuSubItem>
-                            <SidebarMenuSubButton
-                              asChild
-                              isActive={location.pathname === `/competition/${comp.id}/fixtures/unassigned`}
-                            >
-                              <Link to={`/competition/${comp.id}/fixtures/unassigned`}>
-                                <span>Unassigned</span>
                               </Link>
                             </SidebarMenuSubButton>
                           </SidebarMenuSubItem>
