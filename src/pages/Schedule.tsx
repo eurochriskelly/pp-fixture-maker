@@ -27,6 +27,12 @@ type PitchFixtureItem = {
   fixture: Fixture;
 };
 
+type FixtureBatchUpdate = {
+  competitionId: string;
+  fixtureId: string;
+  updates: Partial<Fixture>;
+};
+
 const Schedule = () => {
   const {
     competitions,
@@ -48,16 +54,48 @@ const Schedule = () => {
   const [draggingFixtureId, setDraggingFixtureId] = React.useState<string | null>(null);
   const [dropTargetFixtureId, setDropTargetFixtureId] = React.useState<string | null>(null);
   const [insertTarget, setInsertTarget] = React.useState<{ pitchId: string; index: number } | null>(null);
+  const [recentlyChangedIds, setRecentlyChangedIds] = React.useState<string[]>([]);
+  const [recentlyPrimaryChangedId, setRecentlyPrimaryChangedId] = React.useState<string | null>(null);
   const [recentlySwappedIds, setRecentlySwappedIds] = React.useState<string[]>([]);
+  const changeFeedbackTimeoutRef = React.useRef<number | null>(null);
   const swapFeedbackTimeoutRef = React.useRef<number | null>(null);
+  const clearDragState = React.useCallback(() => {
+    setDraggingFixtureId(null);
+    setDropTargetFixtureId(null);
+    setInsertTarget(null);
+  }, []);
 
   React.useEffect(() => {
     return () => {
+      if (changeFeedbackTimeoutRef.current) {
+        window.clearTimeout(changeFeedbackTimeoutRef.current);
+      }
       if (swapFeedbackTimeoutRef.current) {
         window.clearTimeout(swapFeedbackTimeoutRef.current);
       }
     };
   }, []);
+
+  React.useEffect(() => {
+    const resetDragUi = () => {
+      clearDragState();
+    };
+
+    window.addEventListener('dragend', resetDragUi);
+    window.addEventListener('drop', resetDragUi);
+
+    return () => {
+      window.removeEventListener('dragend', resetDragUi);
+      window.removeEventListener('drop', resetDragUi);
+    };
+  }, [clearDragState]);
+
+  const fixtureById = new Map<string, Fixture>();
+  competitions.forEach(comp => {
+    comp.fixtures.forEach(fixture => {
+      fixtureById.set(fixture.id, fixture);
+    });
+  });
 
   const handleAddPitch = () => {
     if (newPitchName.trim()) {
@@ -98,9 +136,7 @@ const Schedule = () => {
   };
 
   const onDragEnd = () => {
-    setDraggingFixtureId(null);
-    setDropTargetFixtureId(null);
-    setInsertTarget(null);
+    clearDragState();
   }
 
   const onDragOver = (e: React.DragEvent) => {
@@ -138,13 +174,60 @@ const Schedule = () => {
     }, 1200);
   };
 
-  const listPitchFixtures = (pitchId: string): PitchFixtureItem[] => {
+  const getActuallyChangedFixtureIds = (updates: FixtureBatchUpdate[]) => {
+    const changedIds: string[] = [];
+
+    updates.forEach(update => {
+      const current = fixtureById.get(update.fixtureId);
+      if (!current) {
+        changedIds.push(update.fixtureId);
+        return;
+      }
+
+      const hasPitchUpdate = Object.prototype.hasOwnProperty.call(update.updates, 'pitchId');
+      const hasStartUpdate = Object.prototype.hasOwnProperty.call(update.updates, 'startTime');
+
+      const pitchChanged = hasPitchUpdate && current.pitchId !== update.updates.pitchId;
+      const startChanged = hasStartUpdate && current.startTime !== update.updates.startTime;
+
+      if (pitchChanged || startChanged) {
+        changedIds.push(update.fixtureId);
+      }
+    });
+
+    return Array.from(new Set(changedIds));
+  };
+
+  const showChangeFeedback = (fixtureIds: string[], primaryFixtureId?: string) => {
+    const uniqueFixtureIds = Array.from(new Set(fixtureIds));
+    if (uniqueFixtureIds.length === 0) return;
+
+    setRecentlyChangedIds(uniqueFixtureIds);
+    setRecentlyPrimaryChangedId(
+      primaryFixtureId && uniqueFixtureIds.includes(primaryFixtureId) ? primaryFixtureId : null
+    );
+    if (changeFeedbackTimeoutRef.current) {
+      window.clearTimeout(changeFeedbackTimeoutRef.current);
+    }
+    changeFeedbackTimeoutRef.current = window.setTimeout(() => {
+      setRecentlyChangedIds([]);
+      setRecentlyPrimaryChangedId(null);
+    }, 2500);
+  };
+
+  const listPitchFixtures = (pitchId: string, updateMap?: Map<string, Partial<Fixture>>): PitchFixtureItem[] => {
     return competitions
-      .flatMap(comp => comp.fixtures.map(fixture => ({
-        competitionId: comp.id,
-        groups: comp.groups || [],
-        fixture,
-      })))
+      .flatMap(comp => comp.fixtures.map(fixture => {
+        const effectiveFixture = updateMap?.has(fixture.id)
+          ? { ...fixture, ...updateMap.get(fixture.id) }
+          : fixture;
+
+        return {
+          competitionId: comp.id,
+          groups: comp.groups || [],
+          fixture: effectiveFixture,
+        };
+      }))
       .filter(item => item.fixture.pitchId === pitchId)
       .sort((a, b) => {
         const aStart = minutesFromMidnight(a.fixture.startTime || '10:00');
@@ -192,9 +275,9 @@ const Schedule = () => {
     });
   };
 
-  const insertFixtureAtPosition = (sourceFixtureId: string, targetPitchId: string, targetIndex: number) => {
+  const computeInsertUpdates = (sourceFixtureId: string, targetPitchId: string, targetIndex: number): FixtureBatchUpdate[] => {
     const source = findFixtureContext(sourceFixtureId);
-    if (!source) return;
+    if (!source) return [];
 
     const sourcePitchId = source.fixture.pitchId;
     const clampedTargetIndex = Math.max(0, targetIndex);
@@ -202,7 +285,7 @@ const Schedule = () => {
     if (sourcePitchId && sourcePitchId === targetPitchId) {
       const samePitchList = listPitchFixtures(sourcePitchId);
       const sourceIndex = samePitchList.findIndex(item => item.fixture.id === sourceFixtureId);
-      if (sourceIndex < 0) return;
+      if (sourceIndex < 0) return [];
 
       samePitchList.splice(sourceIndex, 1);
 
@@ -212,11 +295,10 @@ const Schedule = () => {
       }
       insertIndex = Math.max(0, Math.min(insertIndex, samePitchList.length));
 
-      if (insertIndex === sourceIndex) return;
+      if (insertIndex === sourceIndex) return [];
 
       samePitchList.splice(insertIndex, 0, source);
-      batchUpdateFixtures(buildPitchTimelineUpdates(targetPitchId, samePitchList));
-      return;
+      return buildPitchTimelineUpdates(targetPitchId, samePitchList);
     }
 
     const targetList = listPitchFixtures(targetPitchId);
@@ -225,14 +307,35 @@ const Schedule = () => {
 
     if (sourcePitchId) {
       const sourceList = listPitchFixtures(sourcePitchId).filter(item => item.fixture.id !== sourceFixtureId);
-      batchUpdateFixtures([
+      return [
         ...buildPitchTimelineUpdates(sourcePitchId, sourceList),
         ...buildPitchTimelineUpdates(targetPitchId, targetList),
-      ]);
-      return;
+      ];
     }
 
-    batchUpdateFixtures(buildPitchTimelineUpdates(targetPitchId, targetList));
+    return buildPitchTimelineUpdates(targetPitchId, targetList);
+  };
+
+  const applyBatchUpdates = (updates: FixtureBatchUpdate[]) => {
+    if (updates.length > 0) {
+      batchUpdateFixtures(updates);
+    }
+  };
+
+  const insertPreviewUpdates =
+    draggingFixtureId && insertTarget
+      ? computeInsertUpdates(draggingFixtureId, insertTarget.pitchId, insertTarget.index)
+      : [];
+
+  const insertPreviewMap = new Map<string, Partial<Fixture>>(
+    insertPreviewUpdates
+      .filter(update => update.fixtureId !== draggingFixtureId)
+      .map(update => [update.fixtureId, update.updates])
+  );
+
+  const getEffectiveFixture = (fixture: Fixture) => {
+    if (!insertPreviewMap.has(fixture.id)) return fixture;
+    return { ...fixture, ...insertPreviewMap.get(fixture.id) };
   };
 
   const draggingFixtureContext = draggingFixtureId ? findFixtureContext(draggingFixtureId) : null;
@@ -260,7 +363,9 @@ const Schedule = () => {
       if (sourceIndex < 0 || targetIndex < 0) return;
 
       [list[sourceIndex], list[targetIndex]] = [list[targetIndex], list[sourceIndex]];
-      batchUpdateFixtures(buildPitchTimelineUpdates(sourcePitchId, list));
+      const updates = buildPitchTimelineUpdates(sourcePitchId, list);
+      batchUpdateFixtures(updates);
+      showChangeFeedback(getActuallyChangedFixtureIds(updates), sourceFixtureId);
       showSwapFeedback([sourceFixtureId, targetFixtureId]);
       return;
     }
@@ -280,10 +385,12 @@ const Schedule = () => {
       sourceList.splice(sourceIndex, 0, target);
       targetList.splice(targetIndex, 0, source);
 
-      batchUpdateFixtures([
+      const updates = [
         ...buildPitchTimelineUpdates(sourcePitchId, sourceList),
         ...buildPitchTimelineUpdates(targetPitchId, targetList)
-      ]);
+      ];
+      batchUpdateFixtures(updates);
+      showChangeFeedback(getActuallyChangedFixtureIds(updates), sourceFixtureId);
       showSwapFeedback([sourceFixtureId, targetFixtureId]);
       return;
     }
@@ -295,14 +402,16 @@ const Schedule = () => {
 
     targetList.splice(targetIndex, 1, source);
 
-    batchUpdateFixtures([
+    const updates = [
       ...buildPitchTimelineUpdates(targetPitchId, targetList),
       {
         competitionId: target.competitionId,
         fixtureId: target.fixture.id,
         updates: { pitchId: undefined, startTime: undefined }
       }
-    ]);
+    ];
+    batchUpdateFixtures(updates);
+    showChangeFeedback(getActuallyChangedFixtureIds(updates), sourceFixtureId);
   };
 
   const onDropFixture = (e: React.DragEvent, targetFixtureId: string) => {
@@ -312,9 +421,7 @@ const Schedule = () => {
     if (!fixtureId || fixtureId === targetFixtureId) return;
 
     swapFixtures(fixtureId, targetFixtureId);
-    setDraggingFixtureId(null);
-    setDropTargetFixtureId(null);
-    setInsertTarget(null);
+    clearDragState();
   };
 
   const onDropInsert = (e: React.DragEvent, pitchId: string, index: number) => {
@@ -323,10 +430,10 @@ const Schedule = () => {
     const fixtureId = e.dataTransfer.getData('fixtureId');
     if (!fixtureId) return;
 
-    insertFixtureAtPosition(fixtureId, pitchId, index);
-    setDraggingFixtureId(null);
-    setDropTargetFixtureId(null);
-    setInsertTarget(null);
+    const updates = computeInsertUpdates(fixtureId, pitchId, index);
+    applyBatchUpdates(updates);
+    showChangeFeedback(getActuallyChangedFixtureIds(updates), fixtureId);
+    clearDragState();
   };
 
   const onDropUnassigned = (e: React.DragEvent) => {
@@ -334,9 +441,7 @@ const Schedule = () => {
     const fixtureId = e.dataTransfer.getData('fixtureId');
     if (fixtureId) {
       handleUnassign(fixtureId);
-      setDraggingFixtureId(null);
-      setDropTargetFixtureId(null);
-      setInsertTarget(null);
+      clearDragState();
     }
   };
 
@@ -345,7 +450,7 @@ const Schedule = () => {
     comp.fixtures.map(f => ({ ...f, competitionName: comp.name }))
   );
 
-  const unassignedFixtures = allFixtures.filter(f => !f.pitchId);
+  const unassignedFixtures = allFixtures.filter(f => !getEffectiveFixture(f).pitchId);
 
   // Time grid helpers
   const totalMinutes = (VIEW_END_HOUR - VIEW_START_HOUR) * 60;
@@ -513,6 +618,7 @@ const Schedule = () => {
               {/* Pitch Columns */}
               {pitches.map(pitch => {
                 const pitchFixtures = listPitchFixtures(pitch.id);
+                const pitchFixturesForRender = listPitchFixtures(pitch.id, insertPreviewMap);
                 const viewStartMins = VIEW_START_HOUR * 60;
                 const pitchStartMins = minutesFromMidnight(pitch.startTime || '10:00');
                 const insertionSlots = Array.from({ length: pitchFixtures.length + 1 }, (_, index) => {
@@ -548,6 +654,23 @@ const Schedule = () => {
                         setDropTargetFixtureId(null);
                         setInsertTarget(null);
                       }
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (
+                        draggingFixtureId &&
+                        insertTarget &&
+                        insertTarget.pitchId === pitch.id
+                      ) {
+                        const updates = computeInsertUpdates(
+                          draggingFixtureId,
+                          pitch.id,
+                          insertTarget.index
+                        );
+                        applyBatchUpdates(updates);
+                        showChangeFeedback(getActuallyChangedFixtureIds(updates), draggingFixtureId);
+                      }
+                      clearDragState();
                     }}
                   >
                     {/* Hour lines */}
@@ -642,7 +765,7 @@ const Schedule = () => {
                     })}
 
                     {/* Fixtures */}
-                    {pitchFixtures.map(({ fixture, competitionId, groups }) => {
+                    {pitchFixturesForRender.map(({ fixture, competitionId, groups }) => {
                       const comp = competitions.find(c => c.id === competitionId);
                       const home = comp?.teams.find(t => t.id === fixture.homeTeamId);
                       const away = comp?.teams.find(t => t.id === fixture.awayTeamId);
@@ -668,6 +791,8 @@ const Schedule = () => {
                           className={cn(
                             "absolute w-[95%] left-[2.5%] rounded border shadow-sm cursor-move text-[10px] overflow-hidden group hover:z-20 transition-all duration-200",
                             draggingFixtureId === fixture.id && "opacity-50",
+                            recentlyChangedIds.includes(fixture.id) && "fixture-change-fade",
+                            recentlyPrimaryChangedId === fixture.id && "fixture-change-primary",
                             dropTargetFixtureId === fixture.id && "ring-2 ring-amber-500 shadow-md scale-[1.01]",
                             recentlySwappedIds.includes(fixture.id) && "ring-2 ring-emerald-500"
                           )}
@@ -685,6 +810,11 @@ const Schedule = () => {
                           {recentlySwappedIds.includes(fixture.id) && (
                             <div className="absolute top-0.5 right-5 rounded bg-emerald-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
                               Swapped
+                            </div>
+                          )}
+                          {recentlyPrimaryChangedId === fixture.id && (
+                            <div className="absolute top-0.5 left-0.5 rounded bg-amber-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
+                              Moved
                             </div>
                           )}
 
