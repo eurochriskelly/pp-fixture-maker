@@ -17,7 +17,7 @@ interface TournamentContextType {
   deleteTeam: (competitionId: string, teamId: string) => void;
 
   // Fixture Actions
-  generateFixtures: (competitionId: string) => void;
+  generateFixtures: (competitionId: string, targetGroupId?: string) => void;
   addManualFixture: (competitionId: string, fixture: Omit<Fixture, 'id' | 'competitionId'>) => void;
   addFixtures: (competitionId: string, fixtures: Omit<Fixture, 'id' | 'competitionId'>[]) => void;
   updateFixture: (competitionId: string, fixtureId: string, updates: Partial<Fixture>) => void;
@@ -275,20 +275,20 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
   };
 
-  const generateFixtures = (competitionId: string) => {
+  const generateFixtures = (competitionId: string, targetGroupId?: string) => {
     setCompetitions(competitions.map(comp => {
       if (comp.id === competitionId) {
         const generatedFixtures: Fixture[] = [];
 
-        // If no groups defined, maybe treat as one big group? 
-        // User request: "Round robin are formed from groups and not the entire set of teams as is happenign now"
-        // So we should iterate groups. 
-        // But if there are NO groups, maybe we should still support the old behavior or default to one group?
-        // Let's assume if there are groups, use them. If not, use all teams (legacy support).
-
         const groupsToProcess = (comp.groups && comp.groups.length > 0)
-          ? comp.groups.map(g => ({ id: g.id, name: g.name, teams: comp.teams.filter(t => t.groupId === g.id) }))
-          : [{ id: 'default', name: 'All Teams', teams: comp.teams }];
+          ? comp.groups
+              .filter(group => !targetGroupId || group.id === targetGroupId)
+              .map(group => ({
+                id: group.id,
+                name: group.name,
+                teams: comp.teams.filter(t => t.groupId === group.id)
+              }))
+          : (!targetGroupId ? [{ id: 'default', name: 'All Teams', teams: comp.teams }] : []);
 
         groupsToProcess.forEach(group => {
           const teams = [...group.teams];
@@ -335,9 +335,17 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
         });
 
+        const retainedFixtures = comp.fixtures.filter(fixture => {
+          if (fixture.stage !== 'Group') return true;
+          if (targetGroupId) {
+            return fixture.groupId !== targetGroupId;
+          }
+          return false;
+        });
+
         return {
           ...comp,
-          fixtures: [...comp.fixtures, ...generatedFixtures]
+          fixtures: [...retainedFixtures, ...generatedFixtures]
         };
       }
       return comp;
