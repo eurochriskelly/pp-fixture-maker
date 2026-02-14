@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { useTournament } from '@/context/TournamentContext';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -6,9 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Clock, ArrowLeft, Plus, X, ChevronDown, RotateCcw, Trophy, Calendar, Users, GripVertical } from 'lucide-react';
+import { Clock, Plus, X, ChevronDown, RotateCcw, Calendar, Users, GripVertical, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { getFixtureSlack, minutesFromMidnight, timeFromMinutes } from '@/utils/scheduleUtils';
@@ -16,6 +16,7 @@ import { Competition, Fixture, Group, Pitch } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { getGroupPitchIds } from '@/lib/groupPitches';
 import { createGroupColorMap, getGroupColorFromMap } from '@/lib/groupColors';
+import { SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 
 const PIXELS_PER_MINUTE = 2;
 const VIEW_START_HOUR = 8;
@@ -601,26 +602,6 @@ const Schedule = () => {
     updateGroup(competitionId, group.id, {
       pitchIds: nextPitchIds,
       primaryPitchId: nextPitchIds[0],
-    });
-  };
-
-  const toggleCompetitionSection = (competitionId: string, section: 'groups' | 'fixtures') => {
-    setCompetitionPanelState((prev) => {
-      const current = prev[competitionId];
-      if (!current) {
-        return {
-          ...prev,
-          [competitionId]: { groups: section === 'groups', fixtures: section === 'fixtures' },
-        };
-      }
-
-      return {
-        ...prev,
-        [competitionId]: {
-          ...current,
-          [section]: !current[section],
-        },
-      };
     });
   };
 
@@ -1528,278 +1509,105 @@ const Schedule = () => {
     return `${h.toString().padStart(2, '0')}:00`;
   }
 
-  return (
-    <div className="container mx-auto p-4 max-w-[1600px] h-[calc(100vh-2rem)] flex flex-col">
-      <div className="flex justify-between items-center mb-4 flex-none">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" onClick={() => navigate('/')}>
-            <ArrowLeft className="mr-2 h-4 w-4" /> Back
-          </Button>
-          <h1 className="text-2xl font-bold">Global Schedule</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button onClick={handleAddPitch} variant="outline" size="sm">
-            <Plus className="mr-2 h-4 w-4" /> Add Pitch
-          </Button>
-          <Button onClick={handleAutoSchedule} variant="secondary" size="sm">
-            <Clock className="mr-2 h-4 w-4" /> Auto Schedule All
-          </Button>
-          <Button onClick={handleResetSchedule} variant="outline" size="sm">
-            <RotateCcw className="mr-2 h-4 w-4" /> Reset Schedule
-          </Button>
-          <Button
-            onClick={() => {
-              if (effectivePitches.length > 0) {
-                handleAddBreak(effectivePitches[0].id);
-              }
-            }}
-            variant="outline"
-            size="sm"
-            title="Add a break (drag it to the desired pitch and time)"
-          >
-            <Plus className="mr-2 h-4 w-4" /> Break
-          </Button>
-        </div>
-      </div>
+  const SidebarContentPortal = (
+    <>
+      <SidebarGroup>
+        <SidebarGroupLabel>Schedule Tools</SidebarGroupLabel>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={handleAddPitch}>
+              <Plus /> <span>Add Pitch</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={handleAutoSchedule}>
+              <Clock /> <span>Auto Schedule All</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={handleResetSchedule}>
+              <RotateCcw /> <span>Reset Schedule</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={() => effectivePitches.length > 0 && handleAddBreak(effectivePitches[0].id)}>
+              <Plus /> <span>Add Break</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroup>
 
-      <div className="flex gap-4 flex-1 min-h-0">
-        {/* Sidebar */}
-        <div className="w-80 flex-none flex flex-col h-full bg-white border-r border-slate-200 shadow-[4px_0_24px_-12px_rgba(0,0,0,0.1)] z-20">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white/50 backdrop-blur-sm sticky top-0 z-10">
-            <div className="flex items-center gap-2.5">
-              <div className="p-1.5 bg-indigo-50 rounded-lg">
-                <Trophy className="h-4 w-4 text-indigo-600" />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold text-slate-900 tracking-tight leading-none">Competitions</h2>
-                <p className="text-[10px] text-muted-foreground font-medium mt-0.5 uppercase tracking-wider">Management</p>
-              </div>
-            </div>
-            <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-slate-200 font-semibold text-[10px] h-5 px-2">
-              {competitions.length}
-            </Badge>
-          </div>
-          
-          <ScrollArea className="flex-1 w-full bg-slate-50/30">
-            <div className="p-4 space-y-3">
-              {competitions.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 px-4 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50">
-                  <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-3 shadow-inner">
-                    <Trophy className="h-6 w-6 text-slate-300" />
-                  </div>
-                  <h3 className="text-sm font-semibold text-slate-900 mb-1">No Competitions</h3>
-                  <p className="text-xs text-muted-foreground text-center mb-4 max-w-[180px]">
-                    Create a competition to start scheduling matches.
-                  </p>
-                  <Button variant="outline" size="sm" onClick={() => navigate('/competitions')} className="h-8 text-xs font-medium">
-                    <Plus className="mr-1.5 h-3.5 w-3.5" />
-                    Create New
-                  </Button>
-                </div>
-              ) : (
-                competitions.map((comp) => {
-                  const groups = comp.groups ?? [];
-                  const compUnassignedFixtures = unassignedFixtures.filter(
-                    (fixture) => fixture.competitionId === comp.id
-                  );
-                  const competitionColor = comp.color ?? '#1e293b';
-                  const isOpen = openCompetitionIds.includes(comp.id);
-                  const groupColorMap = createGroupColorMap(groups);
+      <SidebarGroup className="mt-4">
+        <SidebarGroupLabel>Unassigned & Groups</SidebarGroupLabel>
+        <div className="space-y-3 px-2">
+          {competitions.length === 0 ? (
+             <div className="text-xs text-muted-foreground p-2">No competitions.</div>
+          ) : (
+            competitions.map((comp) => {
+              const groups = comp.groups ?? [];
+              const compUnassignedFixtures = unassignedFixtures.filter(
+                (fixture) => fixture.competitionId === comp.id
+              );
+              const competitionColor = comp.color ?? '#1e293b';
+              const isOpen = openCompetitionIds.includes(comp.id);
+              const groupColorMap = createGroupColorMap(groups);
 
-                  return (
-                    <Card key={comp.id} className={cn("overflow-hidden border transition-all duration-300 group/card", isOpen ? "border-indigo-200 shadow-md ring-1 ring-indigo-50" : "border-slate-200 shadow-sm hover:border-indigo-200 hover:shadow-md bg-white")}>
-                      <div className="h-1 w-full" style={{ backgroundColor: competitionColor }} />
-                      <div
-                        className="flex items-center justify-between p-3 cursor-pointer select-none bg-white hover:bg-slate-50/80 transition-colors relative"
-                        onClick={() => toggleCompetition(comp.id)}
-                      >
-                        <div className="flex items-center gap-3 overflow-hidden">
-                          <div className="flex flex-col min-w-0">
-                            <h3 className="text-sm font-bold text-slate-900 truncate leading-tight mb-1 group-hover/card:text-indigo-700 transition-colors">{comp.name}</h3>
-                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
-                              <span className="flex items-center gap-1 bg-slate-100/50 px-1.5 py-0.5 rounded-sm">
-                                <Calendar className="h-3 w-3 text-slate-400" />
-                                {comp.fixtures.length} Fixtures
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className={cn("h-6 w-6 rounded-full flex items-center justify-center transition-all duration-200", isOpen ? "bg-indigo-50 text-indigo-600 rotate-180" : "bg-slate-50 text-slate-400 group-hover/card:bg-slate-100")}>
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        </div>
-                      </div>
-                      
-                      {isOpen && (
-                        <div className="bg-slate-50/50 border-t border-slate-100 animate-in slide-in-from-top-1 fade-in-0 duration-200">
-                          <div className="p-3 space-y-4">
-                            {/* Groups Section */}
-                            <div className="space-y-2">
-                              <button
-                                type="button"
-                                onClick={() => toggleCompetitionSection(comp.id, 'groups')}
-                                className="flex w-full items-center justify-between text-xs font-semibold text-slate-600 hover:text-indigo-600 transition-colors group/sec px-1"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <div className="p-1 rounded-md bg-white border border-slate-200 shadow-sm group-hover/sec:border-indigo-200 transition-colors">
-                                    <Users className="h-3 w-3 text-slate-400 group-hover/sec:text-indigo-500" />
-                                  </div>
-                                  <span>Groups & Settings</span>
-                                </div>
-                                <ChevronDown
-                                  className={cn('h-3 w-3 text-slate-400 transition-transform duration-200', {
-                                    'rotate-180': competitionPanelState[comp.id]?.groups,
-                                  })}
-                                />
-                              </button>
-                              
-                              {competitionPanelState[comp.id]?.groups && (
-                                <div className="pl-1 space-y-3 pt-1 animate-in slide-in-from-top-1 fade-in-0 duration-150">
-                                  {groups.length > 0 ? (
-                                    groups.map((group, groupIndex) => {
-                                      const selectedPitchIds = getGroupPitchIds(group);
-                                      const groupColor = getGroupColorFromMap(groupColorMap, group.id);
-
-                                      return (
-                                        <div
-                                          key={group.id}
-                                          className="rounded-lg border border-slate-200 bg-white shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden"
-                                        >
-                                          <div className="px-3 py-2 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                              <span
-                                                className="h-2 w-2 rounded-full ring-2 ring-white shadow-sm"
-                                                style={{ backgroundColor: groupColor }}
-                                              />
-                                              <span className="text-xs font-bold text-slate-800">
-                                                {group.name || `Group ${groupIndex + 1}`}
-                                              </span>
-                                            </div>
-                                            <Badge variant="secondary" className={cn("text-[9px] h-4 px-1.5 font-medium border-0", selectedPitchIds.length > 0 ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500")}>
-                                              {selectedPitchIds.length} Pitch{selectedPitchIds.length !== 1 ? 'es' : ''}
-                                            </Badge>
-                                          </div>
-                                          
-                                          <div className="p-2.5 space-y-3">
-                                            <div className="grid grid-cols-2 gap-2">
-                                              <div className="space-y-1">
-                                                <label className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider pl-0.5">Duration</label>
-                                                <div className="relative">
-                                                  <Input
-                                                    type="number"
-                                                    min={1}
-                                                    value={group.defaultDuration ?? DEFAULT_GROUP_DURATION}
-                                                    onChange={(event) => {
-                                                      const nextDuration = Number.parseInt(event.target.value, 10);
-                                                      if (Number.isNaN(nextDuration)) return;
-                                                      updateGroup(comp.id, group.id, {
-                                                        defaultDuration: Math.max(1, nextDuration),
-                                                      });
-                                                    }}
-                                                    className="h-7 w-full text-xs pr-6 bg-slate-50/50 border-slate-200 focus:bg-white focus:ring-1 focus:ring-indigo-500 font-medium transition-all"
-                                                  />
-                                                  <span className="absolute right-2 top-1.5 text-[10px] text-slate-400 font-medium pointer-events-none">m</span>
-                                                </div>
-                                              </div>
-                                              <div className="space-y-1">
-                                                <label className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider pl-0.5">Slack</label>
-                                                <div className="relative">
-                                                  <Input
-                                                    type="number"
-                                                    min={0}
-                                                    value={group.defaultSlack ?? DEFAULT_GROUP_SLACK}
-                                                    onChange={(event) => {
-                                                      const nextSlack = Number.parseInt(event.target.value, 10);
-                                                      if (Number.isNaN(nextSlack)) return;
-                                                      updateGroup(comp.id, group.id, {
-                                                        defaultSlack: Math.max(0, nextSlack),
-                                                      });
-                                                    }}
-                                                    className="h-7 w-full text-xs pr-6 bg-slate-50/50 border-slate-200 focus:bg-white focus:ring-1 focus:ring-indigo-500 font-medium transition-all"
-                                                  />
-                                                  <span className="absolute right-2 top-1.5 text-[10px] text-slate-400 font-medium pointer-events-none">m</span>
-                                                </div>
-                                              </div>
-                                            </div>
-                                            
-                                            <div className="space-y-1.5">
-                                              <div className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider pl-0.5">
-                                                Assign Pitches
-                                              </div>
-                                              <div className="flex flex-wrap gap-1.5">
-                                                {pitches.map((pitch) => {
-                                                  const isChecked = selectedPitchIds.includes(pitch.id);
-                                                  return (
-                                                    <label
-                                                      key={pitch.id}
-                                                      className={cn(
-                                                        "flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] cursor-pointer border transition-all duration-200 select-none",
-                                                        isChecked
-                                                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm"
-                                                          : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
-                                                      )}
-                                                    >
-                                                      <Checkbox
-                                                        className={cn("h-3 w-3 rounded-[3px] border-slate-300 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600 transition-all", isChecked ? "opacity-100" : "opacity-50 group-hover:opacity-100")}
-                                                        checked={isChecked}
-                                                        onCheckedChange={(checked) =>
-                                                          toggleGroupPitch(comp.id, group, pitch.id, checked === true)
-                                                        }
-                                                      />
-                                                      <span className="font-medium truncate max-w-[80px]">{pitch.name}</span>
-                                                    </label>
-                                                  );
-                                                })}
-                                              </div>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      );
-                                    })
-                                  ) : (
-                                    <div className="rounded-lg border border-dashed border-slate-200 p-4 text-center bg-slate-50/50">
-                                      <p className="text-xs text-muted-foreground font-medium">No groups defined</p>
+              return (
+                 <div key={comp.id} className="border rounded-md bg-background overflow-hidden">
+                    <div className="h-1 w-full" style={{ backgroundColor: competitionColor }} />
+                    <div 
+                      className="p-2 flex items-center justify-between cursor-pointer hover:bg-muted/50"
+                      onClick={() => toggleCompetition(comp.id)}
+                    >
+                       <span className="font-semibold text-xs truncate">{comp.name}</span>
+                       <ChevronDown className={cn("h-3 w-3 transition-transform", isOpen && "rotate-180")} />
+                    </div>
+                    
+                    {isOpen && (
+                      <div className="p-2 bg-muted/20 space-y-2">
+                         {/* Groups Toggles */}
+                         <div className="space-y-1">
+                            <div className="text-[10px] font-bold text-muted-foreground uppercase">Groups</div>
+                             {groups.map(group => {
+                                const selectedPitchIds = getGroupPitchIds(group);
+                                const groupColor = getGroupColorFromMap(groupColorMap, group.id);
+                                return (
+                                  <div key={group.id} className="text-[10px] border rounded p-1.5 bg-background">
+                                    <div className="flex items-center gap-1 mb-1">
+                                      <span className="w-2 h-2 rounded-full" style={{backgroundColor: groupColor}} />
+                                      <span className="font-medium truncate">{group.name}</span>
                                     </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-
-                            <Separator className="bg-slate-200/60" />
-
-                            {/* Fixtures Section */}
-                            <div className="space-y-2">
-                              <button
-                                type="button"
-                                onClick={() => toggleCompetitionSection(comp.id, 'fixtures')}
-                                className="flex w-full items-center justify-between text-xs font-semibold text-slate-600 hover:text-indigo-600 transition-colors group/sec px-1"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <div className="p-1 rounded-md bg-white border border-slate-200 shadow-sm group-hover/sec:border-indigo-200 transition-colors">
-                                    <GripVertical className="h-3 w-3 text-slate-400 group-hover/sec:text-indigo-500" />
+                                    <div className="flex gap-1 mb-1">
+                                       <Input 
+                                          className="h-5 text-[9px] px-1 w-12" 
+                                          value={group.defaultDuration ?? DEFAULT_GROUP_DURATION}
+                                          onChange={e => updateGroup(comp.id, group.id, { defaultDuration: parseInt(e.target.value) || 20 })} 
+                                       />
+                                       <span className="text-[9px] text-muted-foreground self-center">min</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                       {pitches.map(p => (
+                                          <div key={p.id} 
+                                            className={cn("px-1 rounded cursor-pointer", selectedPitchIds.includes(p.id) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}
+                                            onClick={() => toggleGroupPitch(comp.id, group, p.id, !selectedPitchIds.includes(p.id))}
+                                          >
+                                             {p.name}
+                                          </div>
+                                       ))}
+                                    </div>
                                   </div>
-                                  <span>Unscheduled Fixtures</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  {compUnassignedFixtures.length > 0 && (
-                                    <Badge variant="secondary" className="h-4 min-w-[1.25rem] justify-center px-1 text-[9px] bg-indigo-100 text-indigo-700 font-bold border-indigo-100 shadow-sm">
-                                      {compUnassignedFixtures.length}
-                                    </Badge>
-                                  )}
-                                  <ChevronDown
-                                    className={cn('h-3 w-3 text-slate-400 transition-transform duration-200', {
-                                      'rotate-180': competitionPanelState[comp.id]?.fixtures,
-                                    })}
-                                  />
-                                </div>
-                              </button>
-                              
-                              {competitionPanelState[comp.id]?.fixtures && (
-                                <div
-                                  onDragOver={onDragOver}
-                                  className="pt-1 pl-1 animate-in slide-in-from-top-1 fade-in-0 duration-150"
-                                >
-                                  <UnassignedCompetitionSection
-                                    key={`${comp.id}-unassigned`}
+                                )
+                             })}
+                         </div>
+
+                         {/* Unassigned Fixtures */}
+                         <div className="space-y-1">
+                            <div className="text-[10px] font-bold text-muted-foreground uppercase flex justify-between">
+                              <span>Unscheduled</span>
+                              <Badge variant="secondary" className="h-4 px-1 text-[9px]">{compUnassignedFixtures.length}</Badge>
+                            </div>
+                            <div onDragOver={onDragOver}>
+                                <UnassignedCompetitionSection
                                     comp={comp}
                                     fixtures={compUnassignedFixtures}
                                     effectivePitches={effectivePitches}
@@ -1809,22 +1617,26 @@ const Schedule = () => {
                                     handleAssign={handleAssign}
                                     showHeader={false}
                                   />
-                                </div>
-                              )}
                             </div>
-                          </div>
-                        </div>
-                      )}
-                    </Card>
-                  );
-                })
-              )}
-            </div>
-          </ScrollArea>
+                         </div>
+                      </div>
+                    )}
+                 </div>
+              );
+            })
+          )}
         </div>
+      </SidebarGroup>
+    </>
+  );
 
-        {/* Main Time Grid */}
-        <div className="flex-1 flex flex-col h-full min-w-0 border rounded-lg bg-white overflow-hidden shadow-sm">
+  const portalTarget = document.getElementById('sidebar-schedule-portal');
+
+  return (
+    <div className="container mx-auto p-0 h-full flex flex-col">
+      {portalTarget && createPortal(SidebarContentPortal, portalTarget)}
+
+      <div className="flex-1 flex flex-col h-full min-w-0 border rounded-lg bg-white overflow-hidden shadow-sm">
           {/* Header */}
           <div className="flex border-b bg-slate-50 sticky top-0 z-20">
             <div className="w-16 flex-none border-r p-2 text-xs font-semibold text-center text-muted-foreground">Time</div>
@@ -2271,7 +2083,6 @@ const Schedule = () => {
             </div>
           </div>
         </div>
-      </div>
     </div>
   );
 };
