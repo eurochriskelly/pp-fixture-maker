@@ -578,6 +578,16 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const autoScheduleMatches = (competitionId: string) => {
+    // Knockout stages ordered by dependency tier.
+    // Stages in the same tier can be played in parallel.
+    const KNOCKOUT_TIER: Record<string, number> = {
+      'Round of 16': 0,
+      'Quarter-Final': 1,
+      'Semi-Final': 2,
+      '3rd Place Playoff': 3,
+      'Final': 3,
+    };
+
     setCompetitions((prevCompetitions) => {
       const scheduledCompetitions = prevCompetitions.map((competition) => {
         if (competition.id !== competitionId || competition.fixtures.length === 0) {
@@ -590,20 +600,28 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)])
         );
         const groupsById = new Map((competition.groups || []).map((group) => [group.id, group]));
-        const groupQueues = new Map<
-          string,
-          {
-            pitchPool: string[];
-            nextPitchIndex: number;
-            fixtures: Array<{ fixtureId: string; duration: number; slack: number }>;
-          }
-        >();
-        const groupOrder: string[] = [];
         const fixtureUpdates = new Map<string, Partial<Fixture>>();
 
-        competition.fixtures.forEach((fixture) => {
+        // Split fixtures into group stage and knockout
+        const groupStageFixtures = competition.fixtures.filter(
+          (f) => !f.stage || f.stage === 'Group'
+        );
+        const knockoutFixtures = competition.fixtures.filter(
+          (f) => f.stage && f.stage !== 'Group'
+        );
+
+        // ── Phase 1: Schedule Group Stage ──
+        // Build per-group queues (preserving fixture order within each group)
+        type QueueEntry = { fixtureId: string; duration: number; slack: number };
+        type GroupQueue = { pitchPool: string[]; nextPitchIndex: number; fixtures: QueueEntry[] };
+
+        const groupQueues = new Map<string, GroupQueue>();
+        const groupOrder: string[] = [];
+        const usedPitchIds = new Set<string>();
+
+        groupStageFixtures.forEach((fixture) => {
           const { group, duration, slack } = getFixtureTimingConfig(fixture, groupsById);
-          const configuredPitchIds = getGroupPitchIds(group).filter((pitchId) => validPitchIds.has(pitchId));
+          const configuredPitchIds = getGroupPitchIds(group).filter((id) => validPitchIds.has(id));
           const fixturePitchId =
             fixture.pitchId && validPitchIds.has(fixture.pitchId) ? fixture.pitchId : undefined;
           const pitchPool =
@@ -620,56 +638,106 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             return;
           }
 
+          pitchPool.forEach((id) => usedPitchIds.add(id));
+
           const groupKey = group?.id ?? `fixture:${fixture.id}`;
-          const groupQueue = groupQueues.get(groupKey);
-
-          if (!groupQueue) {
+          if (!groupQueues.has(groupKey)) {
             groupOrder.push(groupKey);
-            groupQueues.set(groupKey, {
-              pitchPool,
-              nextPitchIndex: 0,
-              fixtures: [],
-            });
+            groupQueues.set(groupKey, { pitchPool, nextPitchIndex: 0, fixtures: [] });
           }
-
-          groupQueues.get(groupKey)?.fixtures.push({
-            fixtureId: fixture.id,
-            duration,
-            slack,
-          });
+          groupQueues.get(groupKey)!.fixtures.push({ fixtureId: fixture.id, duration, slack });
         });
 
+        // Deal group fixtures across pitches
         const pitchCursorById = new Map(
           pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)])
         );
-        let pendingFixtures = true;
+        let pending = true;
 
-        while (pendingFixtures) {
-          pendingFixtures = false;
-
+        while (pending) {
+          pending = false;
           groupOrder.forEach((groupKey) => {
             const queue = groupQueues.get(groupKey);
             if (!queue || queue.fixtures.length === 0) return;
+            pending = true;
 
-            pendingFixtures = true;
-
-            const nextFixture = queue.fixtures.shift();
-            if (!nextFixture) return;
-
+            const entry = queue.fixtures.shift()!;
             const pitchId = queue.pitchPool[queue.nextPitchIndex % queue.pitchPool.length];
             queue.nextPitchIndex += 1;
 
-            const pitchStart = pitchStartById.get(pitchId) ?? 10 * 60;
-            const pitchCursor = pitchCursorById.get(pitchId) ?? pitchStart;
-
-            fixtureUpdates.set(nextFixture.fixtureId, {
+            const cursor = pitchCursorById.get(pitchId) ?? (pitchStartById.get(pitchId) ?? 10 * 60);
+            fixtureUpdates.set(entry.fixtureId, {
               pitchId,
-              startTime: toTimeString(pitchCursor),
-              duration: nextFixture.duration,
+              startTime: toTimeString(cursor),
+              duration: entry.duration,
             });
-
-            pitchCursorById.set(pitchId, pitchCursor + nextFixture.duration + nextFixture.slack);
+            pitchCursorById.set(pitchId, cursor + entry.duration + entry.slack);
           });
+        }
+
+        // ── Phase 2: Schedule Knockout Fixtures ──
+        if (knockoutFixtures.length > 0) {
+          // Determine knockout pitch pool (all pitches used in group stage, or all pitches as fallback)
+          const knockoutPitchPool = usedPitchIds.size > 0
+            ? Array.from(usedPitchIds)
+            : pitches.map((p) => p.id);
+
+          // Find the latest end time across all pitches after group stage
+          let groupStageEndTime = 0;
+          for (const pitchId of knockoutPitchPool) {
+            const cursor = pitchCursorById.get(pitchId) ?? 0;
+            groupStageEndTime = Math.max(groupStageEndTime, cursor);
+          }
+
+          // Group knockout fixtures by their dependency tier (preserving order within each tier)
+          const fixturesByTier = new Map<number, { fixture: Fixture; duration: number; slack: number }[]>();
+          knockoutFixtures.forEach((fixture) => {
+            const { duration, slack } = getFixtureTimingConfig(fixture, groupsById);
+            const tier = KNOCKOUT_TIER[fixture.stage] ?? 99;
+            if (!fixturesByTier.has(tier)) {
+              fixturesByTier.set(tier, []);
+            }
+            fixturesByTier.get(tier)!.push({ fixture, duration, slack });
+          });
+
+          // Process tiers in order
+          const sortedTiers = Array.from(fixturesByTier.keys()).sort((a, b) => a - b);
+          let tierMinStartTime = groupStageEndTime;
+
+          for (const tier of sortedTiers) {
+            const tierFixtures = fixturesByTier.get(tier)!;
+
+            // Ensure all pitch cursors are at least at the tier minimum start time
+            for (const pitchId of knockoutPitchPool) {
+              const current = pitchCursorById.get(pitchId) ?? 0;
+              if (current < tierMinStartTime) {
+                pitchCursorById.set(pitchId, tierMinStartTime);
+              }
+            }
+
+            // Deal this tier's fixtures across the knockout pitch pool
+            let nextPitchIndex = 0;
+            let tierMaxEndTime = tierMinStartTime;
+
+            for (const entry of tierFixtures) {
+              const pitchId = knockoutPitchPool[nextPitchIndex % knockoutPitchPool.length];
+              nextPitchIndex += 1;
+
+              const cursor = pitchCursorById.get(pitchId) ?? tierMinStartTime;
+              fixtureUpdates.set(entry.fixture.id, {
+                pitchId,
+                startTime: toTimeString(cursor),
+                duration: entry.duration,
+              });
+
+              const endTime = cursor + entry.duration + entry.slack;
+              pitchCursorById.set(pitchId, endTime);
+              tierMaxEndTime = Math.max(tierMaxEndTime, endTime);
+            }
+
+            // Next tier can't start until this tier finishes
+            tierMinStartTime = tierMaxEndTime;
+          }
         }
 
         return {

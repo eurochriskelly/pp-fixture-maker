@@ -136,6 +136,9 @@ const UnassignedCompetitionSection = ({
           {fixtures.map(fixture => {
             const home = comp.teams.find(t => t.id === fixture.homeTeamId);
             const away = comp.teams.find(t => t.id === fixture.awayTeamId);
+            const isKnockout = fixture.stage && fixture.stage !== 'Group';
+            const homeDisplay = home?.name || (fixture.homeTeamId === 'TBD' ? 'TBD' : fixture.description?.split(' vs ')[0] || 'Bye');
+            const awayDisplay = away?.name || (fixture.awayTeamId === 'TBD' ? 'TBD' : fixture.description?.split(' vs ')[1] || 'Bye');
 
             return (
               <div
@@ -143,13 +146,18 @@ const UnassignedCompetitionSection = ({
                 draggable
                 onDragStart={(e) => onDragStart(e, { kind: 'fixture', id: fixture.id })}
                 onDragEnd={onDragEnd}
-                className="p-2 border rounded shadow-sm bg-white text-xs cursor-move hover:bg-slate-50 relative"
+                className={cn('p-2 border rounded shadow-sm text-xs cursor-move relative', isKnockout ? 'bg-purple-50 hover:bg-purple-100' : 'bg-white hover:bg-slate-50')}
               >
                 <div className="flex justify-between items-center gap-2">
-                  <span className="truncate">{home?.name || 'Bye'}</span>
+                  <span className="truncate">{homeDisplay}</span>
                   <span className="text-muted-foreground text-[10px]">vs</span>
-                  <span className="truncate">{away?.name || 'Bye'}</span>
+                  <span className="truncate">{awayDisplay}</span>
                 </div>
+                {isKnockout && fixture.description && (
+                  <div className="text-[10px] text-purple-600 italic mt-1 truncate">
+                    {fixture.description}
+                  </div>
+                )}
                 <div className="mt-2 flex gap-1">
                   <Select
                     onValueChange={(val) =>
@@ -1744,6 +1752,10 @@ const Schedule = () => {
                         const comp = competitions.find((c) => c.id === competitionId);
                         const home = comp?.teams.find((t) => t.id === fixture.homeTeamId);
                         const away = comp?.teams.find((t) => t.id === fixture.awayTeamId);
+                        
+                        const isKnockout = fixture.stage && fixture.stage !== 'Group';
+                        const homeDisplay = home?.name || (fixture.homeTeamId === 'TBD' ? 'TBD' : fixture.description?.split(' vs ')[0] || 'Bye');
+                        const awayDisplay = away?.name || (fixture.awayTeamId === 'TBD' ? 'TBD' : fixture.description?.split(' vs ')[1] || 'Bye');
 
                         const startMins = minutesFromMidnight(fixture.startTime || DEFAULT_ASSIGN_TIME);
                         const duration = fixture.duration || DEFAULT_GROUP_DURATION;
@@ -1777,9 +1789,10 @@ const Schedule = () => {
                               borderLeft: `0.6rem solid ${comp?.color || '#1e293b'}`,
                               borderTop: '1px solid #e2e8f0',
                               borderRight: '1px solid #e2e8f0',
-                              borderBottom: '1px solid #e2e8f0'
+                              borderBottom: '1px solid #e2e8f0',
+                              opacity: isKnockout ? 1 : undefined
                             }}
-                            title={`${fixture.startTime} - ${comp?.name} - ${home?.name} vs ${away?.name}`}
+                            title={`${fixture.startTime} - ${comp?.name} - ${fixture.stage || 'Group'} - ${homeDisplay} vs ${awayDisplay}`}
                           >
                             {dropTargetFixtureId === fixture.id && (
                               <div className="absolute top-0.5 right-5 rounded bg-amber-500/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
@@ -1799,19 +1812,36 @@ const Schedule = () => {
 
                             {/* Match Duration Area */}
                             <div
-                              className="w-full bg-blue-100 flex flex-col px-1 py-0.5"
+                              className={cn(
+                                'w-full flex flex-col px-1 py-0.5',
+                                isKnockout 
+                                  ? 'bg-purple-100' 
+                                  : 'bg-blue-100'
+                              )}
                               style={{ height: heightMatch }}
                             >
-                              <div className="font-bold truncate text-blue-900">{fixture.startTime}</div>
-                              <div className="truncate font-medium text-blue-800 leading-tight">{home?.name} v {away?.name}</div>
+                              <div className={cn('font-bold truncate', isKnockout ? 'text-purple-900' : 'text-blue-900')}>
+                                {fixture.startTime} {isKnockout && `(${fixture.stage})`}
+                              </div>
+                              <div className={cn('truncate font-medium leading-tight', isKnockout ? 'text-purple-800' : 'text-blue-800')}>
+                                {homeDisplay} v {awayDisplay}
+                              </div>
+                              {isKnockout && fixture.description && (
+                                <div className="truncate text-[9px] text-purple-700 italic">
+                                  {fixture.description}
+                                </div>
+                              )}
                             </div>
 
                             {/* Slack Duration Area */}
                             <div
-                              className="w-full border-t border-blue-200/50"
+                              className="w-full border-t"
                               style={{
                                 height: heightSlack,
-                                background: 'repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 2px, #e2e8f0 2px, #e2e8f0 4px)'
+                                borderTopColor: isKnockout ? '#ddd6fe' : '#bfdbfe',
+                                background: isKnockout
+                                  ? 'repeating-linear-gradient(45deg, #f3e8ff, #f3e8ff 2px, #e9d5ff 2px, #e9d5ff 4px)'
+                                  : 'repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 2px, #e2e8f0 2px, #e2e8f0 4px)'
                               }}
                             />
 
