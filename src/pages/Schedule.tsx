@@ -3,7 +3,7 @@ import { useTournament } from '@/context/TournamentContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Clock, ArrowLeft, Plus, X, ChevronDown } from 'lucide-react';
+import { Clock, ArrowLeft, Plus, X, ChevronDown, RotateCcw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { GroupSettingsPanel } from '@/components/GroupSettingsPanel';
@@ -186,6 +186,7 @@ const Schedule = () => {
     deletePitch,
     updateFixture,
     autoScheduleMatches,
+    resetAllSchedules,
     batchUpdateFixtures,
   } = useTournament();
   const navigate = useNavigate();
@@ -496,6 +497,12 @@ const Schedule = () => {
     window.setTimeout(() => {
       setPendingAutoScheduleReflow(true);
     }, 0);
+  };
+
+  const handleResetSchedule = () => {
+    const confirmed = window.confirm('Remove all fixtures from the schedule? They will become unassigned.');
+    if (!confirmed) return;
+    resetAllSchedules();
   };
 
   const handleAssign = (competitionId: string, fixtureId: string, pitchId: string, time: string) => {
@@ -1432,6 +1439,9 @@ const Schedule = () => {
           </Button>
           <Button onClick={handleAutoSchedule} variant="secondary" size="sm">
             <Clock className="mr-2 h-4 w-4" /> Auto Schedule All
+          </Button>
+          <Button onClick={handleResetSchedule} variant="outline" size="sm">
+            <RotateCcw className="mr-2 h-4 w-4" /> Reset Schedule
           </Button>
           <Button
             onClick={() => {
