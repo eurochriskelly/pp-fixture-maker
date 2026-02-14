@@ -99,3 +99,37 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes fixture-change-fade {
+  0% {
+    filter: brightness(0.72) saturate(1.08);
+    box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.22);
+  }
+  60% {
+    filter: brightness(0.92) saturate(1.03);
+    box-shadow: 0 0 0 2px rgba(30, 64, 175, 0.12);
+  }
+  100% {
+    filter: brightness(1) saturate(1);
+    box-shadow: none;
+  }
+}
+
+.fixture-change-fade {
+  animation: fixture-change-fade 2.5s ease-out;
+}
+
+@keyframes fixture-change-primary {
+  0% {
+    transform: scale(1.03);
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.42);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: none;
+  }
+}
+
+.fixture-change-primary {
+  animation: fixture-change-primary 2.5s ease-out;
+}
