@@ -3,7 +3,7 @@ import { useTournament } from '@/context/TournamentContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Clock, ArrowLeft, Plus, X } from 'lucide-react';
+import { Clock, ArrowLeft, Plus, X, ChevronDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { GroupSettingsPanel } from '@/components/GroupSettingsPanel';
@@ -399,10 +399,16 @@ const Schedule = () => {
   };
 
   const handleAutoSchedule = () => {
+    // Prevent reflow loop by checking if we're already pending
+    if (pendingAutoScheduleReflow) return;
+    
     competitions.forEach(c => autoScheduleMatches(c.id));
-    window.setTimeout(() => {
+    
+    // Use requestAnimationFrame to defer the reflow trigger
+    // This ensures state updates from autoScheduleMatches have propagated
+    requestAnimationFrame(() => {
       setPendingAutoScheduleReflow(true);
-    }, 0);
+    });
   };
 
   const handleAssign = (competitionId: string, fixtureId: string, pitchId: string, time: string) => {
@@ -1340,6 +1346,18 @@ const Schedule = () => {
           <Button onClick={handleAutoSchedule} variant="secondary" size="sm">
             <Clock className="mr-2 h-4 w-4" /> Auto Schedule All
           </Button>
+          <Button
+            onClick={() => {
+              if (effectivePitches.length > 0) {
+                handleAddBreak(effectivePitches[0].id);
+              }
+            }}
+            variant="outline"
+            size="sm"
+            title="Add a break (drag it to the desired pitch and time)"
+          >
+            <Plus className="mr-2 h-4 w-4" /> Break
+          </Button>
         </div>
       </div>
 
@@ -1360,53 +1378,89 @@ const Schedule = () => {
             <AccordionItem value="unassigned">
               <AccordionTrigger>Unassigned ({unassignedFixtures.length})</AccordionTrigger>
               <AccordionContent>
-                <div
-                  onDragOver={onDragOver}
-                  onDrop={onDropUnassigned}
-                  className="min-h-[200px] border-2 border-dashed rounded-md p-2 bg-slate-50/50"
-                >
-                  <div className="space-y-2">
-                    {unassignedFixtures.map(fixture => {
-                      const comp = competitions.find(c => c.id === fixture.competitionId);
-                      const home = comp?.teams.find(t => t.id === fixture.homeTeamId);
-                      const away = comp?.teams.find(t => t.id === fixture.awayTeamId);
-
-                      return (
+                <div onDragOver={onDragOver} className="space-y-3">
+                  {competitions.filter(comp => unassignedFixtures.some(f => f.competitionId === comp.id)).map(comp => {
+                    const compUnassignedFixtures = unassignedFixtures.filter(f => f.competitionId === comp.id);
+                    const competitionColor = comp.color ?? '#1e293b';
+                    const [isOpen, setIsOpen] = React.useState(true);
+                    
+                    return (
+                      <div
+                        key={comp.id}
+                        className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                      >
                         <div
-                          key={fixture.id}
-                          draggable
-                          onDragStart={(e) => onDragStart(e, { kind: 'fixture', id: fixture.id })}
-                          onDragEnd={onDragEnd}
-                          className="p-2 border rounded shadow-sm bg-white text-xs cursor-move hover:bg-slate-50 relative"
+                          className="absolute inset-y-0 left-0 w-1 rounded-l-2xl"
+                          style={{ backgroundColor: competitionColor }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setIsOpen(!isOpen)}
+                          className="w-full flex items-center justify-between gap-2 pr-4 pl-6 py-3 text-sm font-semibold text-slate-900"
                         >
-                          <div className="font-semibold text-primary/80 mb-1">{comp?.name}</div>
-                          <div className="flex justify-between items-center gap-2">
-                            <span className="truncate">{home?.name || 'Bye'}</span>
-                            <span className="text-muted-foreground text-[10px]">vs</span>
-                            <span className="truncate">{away?.name || 'Bye'}</span>
+                          <span className="text-sm font-semibold tracking-wide uppercase">
+                            {comp.name.toUpperCase()}
+                          </span>
+                          <span className="flex items-center gap-3 text-[11px] text-muted-foreground uppercase">
+                            <span>{compUnassignedFixtures.length} FIXTURES</span>
+                            <ChevronDown
+                              className={cn('h-4 w-4 transition-transform duration-200', {
+                                'rotate-180': isOpen,
+                              })}
+                            />
+                          </span>
+                        </button>
+
+                        {isOpen && (
+                          <div className="space-y-2 px-4 pb-4 pt-2" onDrop={onDropUnassigned}>
+                            {compUnassignedFixtures.map(fixture => {
+                              const home = comp.teams.find(t => t.id === fixture.homeTeamId);
+                              const away = comp.teams.find(t => t.id === fixture.awayTeamId);
+
+                              return (
+                                <div
+                                  key={fixture.id}
+                                  draggable
+                                  onDragStart={(e) => onDragStart(e, { kind: 'fixture', id: fixture.id })}
+                                  onDragEnd={onDragEnd}
+                                  className="p-2 border rounded shadow-sm bg-white text-xs cursor-move hover:bg-slate-50 relative"
+                                >
+                                  <div className="flex justify-between items-center gap-2">
+                                    <span className="truncate">{home?.name || 'Bye'}</span>
+                                    <span className="text-muted-foreground text-[10px]">vs</span>
+                                    <span className="truncate">{away?.name || 'Bye'}</span>
+                                  </div>
+                                  <div className="mt-2 flex gap-1">
+                                    <Select
+                                      onValueChange={(val) =>
+                                        handleAssign(fixture.competitionId, fixture.id, val, DEFAULT_ASSIGN_TIME)
+                                      }
+                                    >
+                                      <SelectTrigger className="h-6 text-[10px] w-full">
+                                        <SelectValue placeholder="Assign" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {effectivePitches.map(pitch => (
+                                          <SelectItem key={pitch.id} value={pitch.id}>
+                                            {pitch.name}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                          <div className="mt-2 flex gap-1">
-                            <Select
-                              onValueChange={(val) =>
-                                handleAssign(fixture.competitionId, fixture.id, val, DEFAULT_ASSIGN_TIME)
-                              }
-                            >
-                              <SelectTrigger className="h-6 text-[10px] w-full">
-                                <SelectValue placeholder="Assign" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {effectivePitches.map(pitch => (
-                                  <SelectItem key={pitch.id} value={pitch.id}>
-                                    {pitch.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {unassignedFixtures.length === 0 && (
+                    <div className="text-center py-4 text-sm text-muted-foreground">
+                      No unassigned fixtures
+                    </div>
+                  )}
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -1434,16 +1488,6 @@ const Schedule = () => {
                     aria-label={`Pitch name ${pitch.name}`}
                   />
                   <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2 text-[10px] shrink-0"
-                    onClick={() => handleAddBreak(pitch.id)}
-                    title={`Add break to ${pitch.name}`}
-                  >
-                    <Plus className="mr-1 h-3 w-3" /> Break
-                  </Button>
-                  <Button
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 shrink-0"
@@ -1452,9 +1496,6 @@ const Schedule = () => {
                   >
                     <X className="h-4 w-4 text-muted-foreground" />
                   </Button>
-                </div>
-                <div className="text-[10px] text-muted-foreground mt-1">
-                  Drag boundaries to resize: {pitch.startTime} - {pitch.endTime}
                 </div>
               </div>
             ))}
