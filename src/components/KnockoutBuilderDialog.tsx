@@ -238,19 +238,19 @@ export const KnockoutBuilderDialog: React.FC<KnockoutBuilderDialogProps> = ({
       if (!stage.enabled) return;
 
       stage.matches.forEach(match => {
-        if (match.homeSource || match.awaySource) {
-           const homeIsTeam = teams.some(t => t.id === match.homeSource);
-           const awayIsTeam = teams.some(t => t.id === match.awaySource);
+        // We now generate fixtures even if sources are empty, marking them as TBD
+        // This allows users to enable a stage and see the matches immediately, then fill them in later
+        const homeIsTeam = teams.some(t => t.id === match.homeSource);
+        const awayIsTeam = teams.some(t => t.id === match.awaySource);
 
-           fixtures.push({
-             matchId: match.id, // Stable ID for upsert
-             homeTeamId: homeIsTeam ? match.homeSource : (match.homeSource || 'TBD'),
-             awayTeamId: awayIsTeam ? match.awaySource : (match.awaySource || 'TBD'),
-             stage: stage.type,
-             description: match.name, 
-             duration: 30,
-           });
-        }
+        fixtures.push({
+          matchId: match.id, // Stable ID for upsert
+          homeTeamId: homeIsTeam ? match.homeSource : (match.homeSource || 'TBD'),
+          awayTeamId: awayIsTeam ? match.awaySource : (match.awaySource || 'TBD'),
+          stage: stage.type,
+          description: match.name,
+          duration: 30,
+        });
       });
     });
 
@@ -277,7 +277,7 @@ export const KnockoutBuilderDialog: React.FC<KnockoutBuilderDialogProps> = ({
             </DialogHeader>
         </div>
 
-        <ScrollArea className="flex-1 px-6">
+        <div className="flex-1 overflow-y-auto px-6">
           <div className="space-y-6 py-4">
             {reversedIndices.map((stageIndex) => {
               const stage = stages[stageIndex];
@@ -403,7 +403,7 @@ export const KnockoutBuilderDialog: React.FC<KnockoutBuilderDialogProps> = ({
               );
             })}
           </div>
-        </ScrollArea>
+        </div>
 
         <div className="p-6 pt-2 border-t mt-auto">
             <DialogFooter>
