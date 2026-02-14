@@ -73,7 +73,7 @@ const Index = () => {
               <div className="flex justify-center mb-6">
                 <CompetitionBadge
                   code={comp.code || comp.name.substring(0, 2).toUpperCase()}
-                  index={competitions.indexOf(comp)}
+                  color={comp.color}
                   size="lg"
                 />
               </div>

@@ -50,11 +50,54 @@ export const useTournament = () => {
   return context;
 };
 
+// Golden ratio for maximum color distribution
+const GOLDEN_RATIO = 0.618033988749895;
+
+// Generate a color using golden ratio to spread hues evenly
+function generateCompetitionColor(index: number): string {
+  // Use golden ratio to distribute hues across 360 degrees
+  const hue = (index * GOLDEN_RATIO * 360) % 360;
+  // Use high saturation and medium-dark lightness for vibrant, distinct colors
+  const saturation = 70;
+  const lightness = 35;
+  
+  // Convert HSL to RGB
+  const h = hue / 360;
+  const s = saturation / 100;
+  const l = lightness / 100;
+  
+  const hueToRgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+  };
+  
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  
+  const r = Math.round(hueToRgb(p, q, h + 1/3) * 255);
+  const g = Math.round(hueToRgb(p, q, h) * 255);
+  const b = Math.round(hueToRgb(p, q, h - 1/3) * 255);
+  
+  // Convert to hex
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
 export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Load from local storage or start fresh
   const [competitions, setCompetitions] = useState<Competition[]>(() => {
     const saved = localStorage.getItem('tournament_competitions');
-    return saved ? JSON.parse(saved) : [];
+    if (!saved) return [];
+    
+    const loadedCompetitions: Competition[] = JSON.parse(saved);
+    // Migrate: assign colors to competitions that don't have them
+    return loadedCompetitions.map((comp, index) => ({
+      ...comp,
+      color: comp.color || generateCompetitionColor(index)
+    }));
   });
 
   const [pitches, setPitches] = useState<Pitch[]>(() => {
@@ -81,10 +124,14 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       code = words.slice(0, 2).map(w => w[0]).join('').toUpperCase();
     }
 
+    // Assign color using golden ratio for max visual distinction
+    const color = generateCompetitionColor(competitions.length);
+
     const newComp: Competition = {
       id: uuidv4(),
       name,
       code,
+      color,
       teams: [],
       groups: [],
       fixtures: []
@@ -341,6 +388,26 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deletePitch = (id: string) => {
     setPitches(pitches.filter(p => p.id !== id));
+
+    // Unassign fixtures that were on the removed pitch to avoid dangling pitch IDs.
+    setCompetitions(prevCompetitions =>
+      prevCompetitions.map(comp => {
+        const hasAffectedFixtures = comp.fixtures.some(fixture => fixture.pitchId === id);
+        if (!hasAffectedFixtures) return comp;
+
+        return {
+          ...comp,
+          fixtures: comp.fixtures.map(fixture => {
+            if (fixture.pitchId !== id) return fixture;
+            return {
+              ...fixture,
+              pitchId: undefined,
+              startTime: undefined,
+            };
+          })
+        };
+      })
+    );
   };
 
   const parseTimeToMinutes = (time?: string, fallback: number = 10 * 60) => {
@@ -356,42 +423,185 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
   };
 
+  const getFixtureTimingConfig = (fixture: Fixture, groupsById: Map<string, Group>) => {
+    const group = fixture.groupId ? groupsById.get(fixture.groupId) : undefined;
+
+    return {
+      group,
+      duration: group?.defaultDuration ?? fixture.duration ?? 20,
+      slack: group?.defaultSlack ?? 5,
+    };
+  };
+
+  const enforceNoPitchOverlaps = (competitionList: Competition[]): Competition[] => {
+    type PitchFixtureRef = {
+      competitionId: string;
+      fixtureId: string;
+      requestedStart: number;
+      duration: number;
+      slack: number;
+      order: number;
+    };
+
+    const pitchStartById = new Map(
+      pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)])
+    );
+    const fixturesByPitch = new Map<string, PitchFixtureRef[]>();
+    let order = 0;
+
+    competitionList.forEach((competition) => {
+      const groupsById = new Map((competition.groups || []).map((group) => [group.id, group]));
+
+      competition.fixtures.forEach((fixture) => {
+        if (!fixture.pitchId) return;
+
+        const pitchStart = pitchStartById.get(fixture.pitchId) ?? 10 * 60;
+        const { duration, slack } = getFixtureTimingConfig(fixture, groupsById);
+        const fixtureRef: PitchFixtureRef = {
+          competitionId: competition.id,
+          fixtureId: fixture.id,
+          requestedStart: parseTimeToMinutes(fixture.startTime, pitchStart),
+          duration,
+          slack,
+          order,
+        };
+
+        order += 1;
+
+        if (!fixturesByPitch.has(fixture.pitchId)) {
+          fixturesByPitch.set(fixture.pitchId, []);
+        }
+
+        fixturesByPitch.get(fixture.pitchId)?.push(fixtureRef);
+      });
+    });
+
+    const updatesByCompetitionId = new Map<string, Map<string, Partial<Fixture>>>();
+
+    fixturesByPitch.forEach((pitchFixtures, pitchId) => {
+      const pitchStart = pitchStartById.get(pitchId) ?? 10 * 60;
+      let cursor = pitchStart;
+
+      pitchFixtures.sort((a, b) => {
+        if (a.requestedStart !== b.requestedStart) {
+          return a.requestedStart - b.requestedStart;
+        }
+
+        return a.order - b.order;
+      });
+
+      pitchFixtures.forEach((item) => {
+        const startMinutes = Math.max(cursor, item.requestedStart);
+        const updatesForCompetition =
+          updatesByCompetitionId.get(item.competitionId) || new Map<string, Partial<Fixture>>();
+
+        updatesForCompetition.set(item.fixtureId, {
+          startTime: toTimeString(startMinutes),
+        });
+        updatesByCompetitionId.set(item.competitionId, updatesForCompetition);
+
+        cursor = startMinutes + item.duration + item.slack;
+      });
+    });
+
+    return competitionList.map((competition) => {
+      const updates = updatesByCompetitionId.get(competition.id);
+      if (!updates || updates.size === 0) return competition;
+
+      return {
+        ...competition,
+        fixtures: competition.fixtures.map((fixture) => {
+          const fixtureUpdates = updates.get(fixture.id);
+          return fixtureUpdates ? { ...fixture, ...fixtureUpdates } : fixture;
+        }),
+      };
+    });
+  };
+
   const autoScheduleMatches = (competitionId: string) => {
-    setCompetitions(prevCompetitions =>
-      prevCompetitions.map(comp => {
-        if (comp.id !== competitionId || comp.fixtures.length === 0) return comp;
+    setCompetitions((prevCompetitions) => {
+      const scheduledCompetitions = prevCompetitions.map((competition) => {
+        if (competition.id !== competitionId || competition.fixtures.length === 0) {
+          return competition;
+        }
 
         const fallbackPitchId = pitches[0]?.id;
-        const groupsById = new Map((comp.groups || []).map(group => [group.id, group]));
-        const groupCursors: Record<string, number> = {};
+        const groupsById = new Map((competition.groups || []).map((group) => [group.id, group]));
+        const pitchQueues = new Map<
+          string,
+          { groupOrder: string[]; queuesByGroup: Map<string, Array<{ fixtureId: string; duration: number; slack: number }>> }
+        >();
+        const fixtureUpdates = new Map<string, Partial<Fixture>>();
 
-        const updatedFixtures = comp.fixtures.map(fixture => {
-          const group = fixture.groupId ? groupsById.get(fixture.groupId) : undefined;
-          const cursorKey = group?.id || '__ungrouped__';
+        competition.fixtures.forEach((fixture) => {
+          const { group, duration, slack } = getFixtureTimingConfig(fixture, groupsById);
+          const pitchId = group?.primaryPitchId || fixture.pitchId || fallbackPitchId;
 
-          if (groupCursors[cursorKey] === undefined) {
-            const pitchId = group?.primaryPitchId || fixture.pitchId || fallbackPitchId;
-            const pitchStart = pitches.find(p => p.id === pitchId)?.startTime;
-            groupCursors[cursorKey] = parseTimeToMinutes(pitchStart);
+          if (!pitchId) {
+            fixtureUpdates.set(fixture.id, { duration });
+            return;
           }
 
-          const duration = group?.defaultDuration ?? fixture.duration ?? 20;
-          const slack = group?.defaultSlack ?? 5;
-          const startMinutes = groupCursors[cursorKey];
+          const groupKey = group?.id || '__ungrouped__';
+          const pitchQueue =
+            pitchQueues.get(pitchId) ||
+            {
+              groupOrder: [],
+              queuesByGroup: new Map<string, Array<{ fixtureId: string; duration: number; slack: number }>>(),
+            };
 
-          groupCursors[cursorKey] += duration + slack;
+          if (!pitchQueue.queuesByGroup.has(groupKey)) {
+            pitchQueue.groupOrder.push(groupKey);
+            pitchQueue.queuesByGroup.set(groupKey, []);
+          }
 
-          return {
-            ...fixture,
-            pitchId: group?.primaryPitchId || fixture.pitchId || fallbackPitchId,
-            startTime: toTimeString(startMinutes),
-            duration
-          };
+          pitchQueue.queuesByGroup.get(groupKey)?.push({
+            fixtureId: fixture.id,
+            duration,
+            slack,
+          });
+          pitchQueues.set(pitchId, pitchQueue);
         });
 
-        return { ...comp, fixtures: updatedFixtures };
-      })
-    );
+        pitchQueues.forEach((pitchQueue, pitchId) => {
+          const pitchStart = pitches.find((pitch) => pitch.id === pitchId)?.startTime;
+          let cursor = parseTimeToMinutes(pitchStart);
+          let pendingFixtures = true;
+
+          while (pendingFixtures) {
+            pendingFixtures = false;
+
+            pitchQueue.groupOrder.forEach((groupKey) => {
+              const queue = pitchQueue.queuesByGroup.get(groupKey);
+              if (!queue || queue.length === 0) return;
+
+              pendingFixtures = true;
+
+              const nextFixture = queue.shift();
+              if (!nextFixture) return;
+
+              fixtureUpdates.set(nextFixture.fixtureId, {
+                pitchId,
+                startTime: toTimeString(cursor),
+                duration: nextFixture.duration,
+              });
+
+              cursor += nextFixture.duration + nextFixture.slack;
+            });
+          }
+        });
+
+        return {
+          ...competition,
+          fixtures: competition.fixtures.map((fixture) => {
+            const updates = fixtureUpdates.get(fixture.id);
+            return updates ? { ...fixture, ...updates } : fixture;
+          }),
+        };
+      });
+
+      return enforceNoPitchOverlaps(scheduledCompetitions);
+    });
   };
 
   const reorderFixtureToPitch = (fixtureId: string, targetPitchId: string, targetIndex: number = -1) => {

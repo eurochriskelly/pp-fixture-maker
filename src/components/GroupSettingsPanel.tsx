@@ -39,8 +39,12 @@ export const GroupSettingsPanel = () => {
                                 <Input
                                     type="number"
                                     className="h-7 text-xs"
-                                    value={group.defaultDuration || 20}
-                                    onChange={(e) => updateGroup(group.competitionId, group.id, { defaultDuration: parseInt(e.target.value) })}
+                                    value={group.defaultDuration ?? 20}
+                                    onChange={(e) => {
+                                        const nextDuration = Number.parseInt(e.target.value, 10);
+                                        if (Number.isNaN(nextDuration)) return;
+                                        updateGroup(group.competitionId, group.id, { defaultDuration: Math.max(1, nextDuration) });
+                                    }}
                                 />
                             </div>
                             <div className="space-y-1">
@@ -48,8 +52,12 @@ export const GroupSettingsPanel = () => {
                                 <Input
                                     type="number"
                                     className="h-7 text-xs"
-                                    value={group.defaultSlack || 5}
-                                    onChange={(e) => updateGroup(group.competitionId, group.id, { defaultSlack: parseInt(e.target.value) })}
+                                    value={group.defaultSlack ?? 5}
+                                    onChange={(e) => {
+                                        const nextSlack = Number.parseInt(e.target.value, 10);
+                                        if (Number.isNaN(nextSlack)) return;
+                                        updateGroup(group.competitionId, group.id, { defaultSlack: Math.max(0, nextSlack) });
+                                    }}
                                 />
                             </div>
                         </div>
