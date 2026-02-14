@@ -21,7 +21,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useTournament } from "@/context/TournamentContext";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
-import { ChevronRight, Plus, Settings, Trophy, Calendar, Home } from "lucide-react";
+import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList } from "lucide-react";
 import { CompetitionBadge } from "@/components/CompetitionBadge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -65,7 +65,7 @@ export default function SidebarLayout() {
                   </div>
                   <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-semibold">Tournament Maker</span>
-                    <span className="truncate text-xs">Dyad Edition</span>
+                    <span className="truncate text-xs"></span>
                   </div>
                 </Link>
               </SidebarMenuButton>
@@ -77,18 +77,18 @@ export default function SidebarLayout() {
             <SidebarGroupLabel>Platform</SidebarGroupLabel>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location.pathname === "/"}>
-                  <Link to="/">
-                    <Home />
-                    <span>Dashboard</span>
+                <SidebarMenuButton asChild isActive={location.pathname === "/schedule"}>
+                  <Link to="/schedule">
+                    <Calendar />
+                    <span>Scheduler</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location.pathname === "/schedule"}>
-                  <Link to="/schedule">
-                    <Calendar />
-                    <span>Global Schedule</span>
+                <SidebarMenuButton asChild isActive={location.pathname === "/"}>
+                  <Link to="/">
+                    <LayoutList />
+                    <span>Competitions ({competitions.length})</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -199,7 +199,7 @@ export default function SidebarLayout() {
         </SidebarContent>
         <SidebarFooter>
           <div className="p-2 text-xs text-center text-muted-foreground">
-            Made with Dyad
+            Pitch Perfect
           </div>
         </SidebarFooter>
       </Sidebar>
