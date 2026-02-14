@@ -14,13 +14,18 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { getFixtureSlack, minutesFromMidnight, timeFromMinutes } from '@/utils/scheduleUtils';
-import { Fixture } from '@/lib/types';
+import { Fixture, Group } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const PIXELS_PER_MINUTE = 2;
-const SNAP_MINUTES = 5;
 const VIEW_START_HOUR = 8;
 const VIEW_END_HOUR = 20;
+
+type PitchFixtureItem = {
+  competitionId: string;
+  groups: Group[];
+  fixture: Fixture;
+};
 
 const Schedule = () => {
   const {
@@ -37,11 +42,22 @@ const Schedule = () => {
   const [newPitchName, setNewPitchName] = React.useState('');
   const [pitchStart, setPitchStart] = React.useState('09:00');
   const [pitchEnd, setPitchEnd] = React.useState('18:00');
-  const [startTime, setStartTime] = React.useState('10:00');
-  const [currentTime] = React.useState(new Date()); // For highlighting current time if needed
+  const [startTime] = React.useState('10:00');
 
   // Drag state
   const [draggingFixtureId, setDraggingFixtureId] = React.useState<string | null>(null);
+  const [dropTargetFixtureId, setDropTargetFixtureId] = React.useState<string | null>(null);
+  const [insertTarget, setInsertTarget] = React.useState<{ pitchId: string; index: number } | null>(null);
+  const [recentlySwappedIds, setRecentlySwappedIds] = React.useState<string[]>([]);
+  const swapFeedbackTimeoutRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (swapFeedbackTimeoutRef.current) {
+        window.clearTimeout(swapFeedbackTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleAddPitch = () => {
     if (newPitchName.trim()) {
@@ -77,10 +93,14 @@ const Schedule = () => {
     e.dataTransfer.setData('fixtureId', fixtureId);
     e.dataTransfer.effectAllowed = 'move';
     setDraggingFixtureId(fixtureId);
+    setDropTargetFixtureId(null);
+    setInsertTarget(null);
   };
 
   const onDragEnd = () => {
     setDraggingFixtureId(null);
+    setDropTargetFixtureId(null);
+    setInsertTarget(null);
   }
 
   const onDragOver = (e: React.DragEvent) => {
@@ -88,80 +108,225 @@ const Schedule = () => {
     e.dataTransfer.dropEffect = 'move';
   };
 
-  const onDropPitch = (e: React.DragEvent, pitchId: string) => {
+  const onDragOverFixture = (e: React.DragEvent, fixtureId: string) => {
+    e.stopPropagation();
+    onDragOver(e);
+
+    if (!draggingFixtureId || draggingFixtureId === fixtureId) {
+      setDropTargetFixtureId(null);
+      return;
+    }
+
+    setInsertTarget(null);
+    setDropTargetFixtureId(fixtureId);
+  };
+
+  const onDragOverInsert = (e: React.DragEvent, pitchId: string, index: number) => {
+    e.stopPropagation();
+    onDragOver(e);
+    setDropTargetFixtureId(null);
+    setInsertTarget({ pitchId, index });
+  };
+
+  const showSwapFeedback = (fixtureIds: string[]) => {
+    setRecentlySwappedIds(fixtureIds);
+    if (swapFeedbackTimeoutRef.current) {
+      window.clearTimeout(swapFeedbackTimeoutRef.current);
+    }
+    swapFeedbackTimeoutRef.current = window.setTimeout(() => {
+      setRecentlySwappedIds([]);
+    }, 1200);
+  };
+
+  const listPitchFixtures = (pitchId: string): PitchFixtureItem[] => {
+    return competitions
+      .flatMap(comp => comp.fixtures.map(fixture => ({
+        competitionId: comp.id,
+        groups: comp.groups || [],
+        fixture,
+      })))
+      .filter(item => item.fixture.pitchId === pitchId)
+      .sort((a, b) => {
+        const aStart = minutesFromMidnight(a.fixture.startTime || '10:00');
+        const bStart = minutesFromMidnight(b.fixture.startTime || '10:00');
+        return aStart - bStart;
+      });
+  };
+
+  const findFixtureContext = (fixtureId: string) => {
+    for (const comp of competitions) {
+      const fixture = comp.fixtures.find(f => f.id === fixtureId);
+      if (fixture) {
+        return {
+          competitionId: comp.id,
+          groups: comp.groups || [],
+          fixture
+        };
+      }
+    }
+    return null;
+  };
+
+  const getBlockMinutes = (fixture: Fixture, groups: Group[]) => {
+    const duration = fixture.duration || 20;
+    const slack = getFixtureSlack(fixture, groups);
+    return duration + slack;
+  };
+
+  const buildPitchTimelineUpdates = (
+    pitchId: string,
+    ordered: PitchFixtureItem[]
+  ) => {
+    const pitchStart = pitches.find(p => p.id === pitchId)?.startTime || '10:00';
+    let cursor = minutesFromMidnight(pitchStart);
+
+    return ordered.map(item => {
+      const startTime = timeFromMinutes(cursor);
+      cursor += getBlockMinutes(item.fixture, item.groups);
+
+      return {
+        competitionId: item.competitionId,
+        fixtureId: item.fixture.id,
+        updates: { pitchId, startTime }
+      };
+    });
+  };
+
+  const insertFixtureAtPosition = (sourceFixtureId: string, targetPitchId: string, targetIndex: number) => {
+    const source = findFixtureContext(sourceFixtureId);
+    if (!source) return;
+
+    const sourcePitchId = source.fixture.pitchId;
+    const clampedTargetIndex = Math.max(0, targetIndex);
+
+    if (sourcePitchId && sourcePitchId === targetPitchId) {
+      const samePitchList = listPitchFixtures(sourcePitchId);
+      const sourceIndex = samePitchList.findIndex(item => item.fixture.id === sourceFixtureId);
+      if (sourceIndex < 0) return;
+
+      samePitchList.splice(sourceIndex, 1);
+
+      let insertIndex = clampedTargetIndex;
+      if (sourceIndex < clampedTargetIndex) {
+        insertIndex = clampedTargetIndex - 1;
+      }
+      insertIndex = Math.max(0, Math.min(insertIndex, samePitchList.length));
+
+      if (insertIndex === sourceIndex) return;
+
+      samePitchList.splice(insertIndex, 0, source);
+      batchUpdateFixtures(buildPitchTimelineUpdates(targetPitchId, samePitchList));
+      return;
+    }
+
+    const targetList = listPitchFixtures(targetPitchId);
+    const insertIndex = Math.max(0, Math.min(clampedTargetIndex, targetList.length));
+    targetList.splice(insertIndex, 0, source);
+
+    if (sourcePitchId) {
+      const sourceList = listPitchFixtures(sourcePitchId).filter(item => item.fixture.id !== sourceFixtureId);
+      batchUpdateFixtures([
+        ...buildPitchTimelineUpdates(sourcePitchId, sourceList),
+        ...buildPitchTimelineUpdates(targetPitchId, targetList),
+      ]);
+      return;
+    }
+
+    batchUpdateFixtures(buildPitchTimelineUpdates(targetPitchId, targetList));
+  };
+
+  const draggingFixtureContext = draggingFixtureId ? findFixtureContext(draggingFixtureId) : null;
+  const draggingBlockHeight = draggingFixtureContext
+    ? getBlockMinutes(draggingFixtureContext.fixture, draggingFixtureContext.groups) * PIXELS_PER_MINUTE
+    : 0;
+
+  const swapFixtures = (sourceFixtureId: string, targetFixtureId: string) => {
+    if (sourceFixtureId === targetFixtureId) return;
+
+    const source = findFixtureContext(sourceFixtureId);
+    const target = findFixtureContext(targetFixtureId);
+    if (!source || !target) return;
+
+    const sourcePitchId = source.fixture.pitchId;
+    const targetPitchId = target.fixture.pitchId;
+
+    if (!targetPitchId) return;
+
+    // Both fixtures are on the same pitch: swap order and reflow that pitch timeline.
+    if (sourcePitchId && sourcePitchId === targetPitchId) {
+      const list = listPitchFixtures(sourcePitchId);
+      const sourceIndex = list.findIndex(item => item.fixture.id === sourceFixtureId);
+      const targetIndex = list.findIndex(item => item.fixture.id === targetFixtureId);
+      if (sourceIndex < 0 || targetIndex < 0) return;
+
+      [list[sourceIndex], list[targetIndex]] = [list[targetIndex], list[sourceIndex]];
+      batchUpdateFixtures(buildPitchTimelineUpdates(sourcePitchId, list));
+      showSwapFeedback([sourceFixtureId, targetFixtureId]);
+      return;
+    }
+
+    // Fixtures are on different pitches: swap slot positions and reflow both affected pitch timelines.
+    if (sourcePitchId) {
+      const sourceList = listPitchFixtures(sourcePitchId);
+      const targetList = listPitchFixtures(targetPitchId);
+
+      const sourceIndex = sourceList.findIndex(item => item.fixture.id === sourceFixtureId);
+      const targetIndex = targetList.findIndex(item => item.fixture.id === targetFixtureId);
+      if (sourceIndex < 0 || targetIndex < 0) return;
+
+      sourceList.splice(sourceIndex, 1);
+      targetList.splice(targetIndex, 1);
+
+      sourceList.splice(sourceIndex, 0, target);
+      targetList.splice(targetIndex, 0, source);
+
+      batchUpdateFixtures([
+        ...buildPitchTimelineUpdates(sourcePitchId, sourceList),
+        ...buildPitchTimelineUpdates(targetPitchId, targetList)
+      ]);
+      showSwapFeedback([sourceFixtureId, targetFixtureId]);
+      return;
+    }
+
+    // Source is unassigned: replace target slot with source and unassign the target fixture.
+    const targetList = listPitchFixtures(targetPitchId);
+    const targetIndex = targetList.findIndex(item => item.fixture.id === targetFixtureId);
+    if (targetIndex < 0) return;
+
+    targetList.splice(targetIndex, 1, source);
+
+    batchUpdateFixtures([
+      ...buildPitchTimelineUpdates(targetPitchId, targetList),
+      {
+        competitionId: target.competitionId,
+        fixtureId: target.fixture.id,
+        updates: { pitchId: undefined, startTime: undefined }
+      }
+    ]);
+  };
+
+  const onDropFixture = (e: React.DragEvent, targetFixtureId: string) => {
     e.preventDefault();
+    e.stopPropagation();
+    const fixtureId = e.dataTransfer.getData('fixtureId');
+    if (!fixtureId || fixtureId === targetFixtureId) return;
+
+    swapFixtures(fixtureId, targetFixtureId);
+    setDraggingFixtureId(null);
+    setDropTargetFixtureId(null);
+    setInsertTarget(null);
+  };
+
+  const onDropInsert = (e: React.DragEvent, pitchId: string, index: number) => {
+    e.preventDefault();
+    e.stopPropagation();
     const fixtureId = e.dataTransfer.getData('fixtureId');
     if (!fixtureId) return;
 
-    // Calculate time from drop position
-    const rect = e.currentTarget.getBoundingClientRect();
-    const offsetY = e.clientY - rect.top + e.currentTarget.scrollTop;
-    const minutes = Math.floor(offsetY / PIXELS_PER_MINUTE) + (VIEW_START_HOUR * 60);
-
-    // Snap to nearest 5 minutes
-    const snappedMinutes = Math.round(minutes / SNAP_MINUTES) * SNAP_MINUTES;
-    const timeString = timeFromMinutes(snappedMinutes);
-
-    // Find the fixture context
-    const comp = competitions.find(c => c.fixtures.some(f => f.id === fixtureId));
-    if (!comp) return;
-    const fixture = comp.fixtures.find(f => f.id === fixtureId);
-    if (!fixture) return;
-
-    // 1. Identify valid collision candidates on the target pitch
-    // Exclude the fixture itself (if we dropped it on the same pitch)
-    const existingFixturesOnPitch = competitions
-      .flatMap(c => c.fixtures)
-      .filter(f => f.pitchId === pitchId && f.id !== fixtureId);
-
-    const newStart = snappedMinutes;
-    // Get group settings or default
-    const groups = comp.groups || [];
-    const grp = groups.find(g => g.id === fixture.groupId);
-    const slack = (grp as any)?.defaultSlack || 5;
-    const newEnd = snappedMinutes + (fixture.duration || 20) + slack;
-
-    // Find the first fixture that overlaps significantly
-    // Overlap: (StartA < EndB) and (EndA > StartB)
-    const collidingFixture = existingFixturesOnPitch.find(f => {
-      const fStart = minutesFromMidnight(f.startTime || '00:00');
-      const fComp = competitions.find(c => c.id === f.competitionId);
-      const fGrp = fComp?.groups.find(g => g.id === f.groupId);
-      const fSlack = (fGrp as any)?.defaultSlack || 5;
-      const fEnd = fStart + (f.duration || 20) + fSlack;
-
-      return (newStart < fEnd) && (newEnd > fStart);
-    });
-
-    if (collidingFixture) {
-      if (fixture.pitchId && fixture.startTime) {
-        const oldPitchId = fixture.pitchId;
-        const oldStartTime = fixture.startTime;
-        const collidingComp = competitions.find(c => c.id === collidingFixture.competitionId);
-
-        if (collidingComp) {
-          // Batch update both
-          batchUpdateFixtures([
-            {
-              competitionId: comp.id,
-              fixtureId: fixture.id,
-              updates: { pitchId, startTime: timeString }
-            },
-            {
-              competitionId: collidingComp.id,
-              fixtureId: collidingFixture.id,
-              updates: { pitchId: oldPitchId, startTime: oldStartTime }
-            }
-          ]);
-          return;
-        }
-      }
-    }
-
-    updateFixture(comp.id, fixture.id, {
-      pitchId,
-      startTime: timeString
-    });
+    insertFixtureAtPosition(fixtureId, pitchId, index);
+    setDraggingFixtureId(null);
+    setDropTargetFixtureId(null);
+    setInsertTarget(null);
   };
 
   const onDropUnassigned = (e: React.DragEvent) => {
@@ -169,6 +334,9 @@ const Schedule = () => {
     const fixtureId = e.dataTransfer.getData('fixtureId');
     if (fixtureId) {
       handleUnassign(fixtureId);
+      setDraggingFixtureId(null);
+      setDropTargetFixtureId(null);
+      setInsertTarget(null);
     }
   };
 
@@ -178,7 +346,6 @@ const Schedule = () => {
   );
 
   const unassignedFixtures = allFixtures.filter(f => !f.pitchId);
-  const assignedFixtures = allFixtures.filter(f => f.pitchId);
 
   // Time grid helpers
   const totalMinutes = (VIEW_END_HOUR - VIEW_START_HOUR) * 60;
@@ -344,67 +511,139 @@ const Schedule = () => {
               </div>
 
               {/* Pitch Columns */}
-              {pitches.map(pitch => (
-                <div
-                  key={pitch.id}
-                  className="flex-1 border-r last:border-r-0 relative"
-                  onDragOver={onDragOver}
-                  onDrop={(e) => onDropPitch(e, pitch.id)}
-                >
-                  {/* Hour lines */}
-                  {timeLabels.map((_, i) => (
-                    <div
-                      key={i}
-                      className="absolute w-full border-b border-gray-100/50 pointer-events-none"
-                      style={{ top: i * 60 * PIXELS_PER_MINUTE, height: 60 * PIXELS_PER_MINUTE }}
-                    />
-                  ))}
+              {pitches.map(pitch => {
+                const pitchFixtures = listPitchFixtures(pitch.id);
+                const viewStartMins = VIEW_START_HOUR * 60;
+                const pitchStartMins = minutesFromMidnight(pitch.startTime || '10:00');
+                const insertionSlots = Array.from({ length: pitchFixtures.length + 1 }, (_, index) => {
+                  let top = (pitchStartMins - viewStartMins) * PIXELS_PER_MINUTE;
 
-                  {/* Pitch Constraints (Out of bounds) */}
-                  {/* Assuming pitch.startTime/endTime are set, or default 09:00-18:00 */}
-                  {/* Render red hatch for unavailable times */}
-                  {(() => {
-                    const pStart = minutesFromMidnight(pitch.startTime || '09:00');
-                    const pEnd = minutesFromMidnight(pitch.endTime || '18:00');
-                    const viewStartMins = VIEW_START_HOUR * 60;
+                  if (index > 0 && index < pitchFixtures.length) {
+                    const next = pitchFixtures[index];
+                    top = (minutesFromMidnight(next.fixture.startTime || '10:00') - viewStartMins) * PIXELS_PER_MINUTE;
+                  }
 
-                    const topUnavailableHeight = Math.max(0, (pStart - viewStartMins) * PIXELS_PER_MINUTE);
-                    const bottomUnavailableStart = Math.max(0, (pEnd - viewStartMins) * PIXELS_PER_MINUTE);
-                    const bottomUnavailableHeight = Math.max(0, gridHeight - bottomUnavailableStart);
+                  if (index === pitchFixtures.length && pitchFixtures.length > 0) {
+                    const previous = pitchFixtures[index - 1];
+                    const previousStart = minutesFromMidnight(previous.fixture.startTime || '10:00');
+                    top = (
+                      (previousStart - viewStartMins) +
+                      getBlockMinutes(previous.fixture, previous.groups)
+                    ) * PIXELS_PER_MINUTE;
+                  }
 
-                    return (
-                      <>
-                        {/* Top unavailable */}
-                        {topUnavailableHeight > 0 && (
+                  return {
+                    index,
+                    top: Math.max(0, Math.min(gridHeight, top))
+                  };
+                });
+
+                return (
+                  <div
+                    key={pitch.id}
+                    className="flex-1 border-r last:border-r-0 relative"
+                    onDragOver={(e) => {
+                      onDragOver(e);
+                      if (e.target === e.currentTarget) {
+                        setDropTargetFixtureId(null);
+                        setInsertTarget(null);
+                      }
+                    }}
+                  >
+                    {/* Hour lines */}
+                    {timeLabels.map((_, i) => (
+                      <div
+                        key={i}
+                        className="absolute w-full border-b border-gray-100/50 pointer-events-none"
+                        style={{ top: i * 60 * PIXELS_PER_MINUTE, height: 60 * PIXELS_PER_MINUTE }}
+                      />
+                    ))}
+
+                    {/* Pitch Constraints (Out of bounds) */}
+                    {/* Assuming pitch.startTime/endTime are set, or default 09:00-18:00 */}
+                    {/* Render red hatch for unavailable times */}
+                    {(() => {
+                      const pStart = minutesFromMidnight(pitch.startTime || '09:00');
+                      const pEnd = minutesFromMidnight(pitch.endTime || '18:00');
+                      const viewStartMins = VIEW_START_HOUR * 60;
+
+                      const topUnavailableHeight = Math.max(0, (pStart - viewStartMins) * PIXELS_PER_MINUTE);
+                      const bottomUnavailableStart = Math.max(0, (pEnd - viewStartMins) * PIXELS_PER_MINUTE);
+                      const bottomUnavailableHeight = Math.max(0, gridHeight - bottomUnavailableStart);
+
+                      return (
+                        <>
+                          {/* Top unavailable */}
+                          {topUnavailableHeight > 0 && (
+                            <div
+                              className="absolute w-full bg-red-50/50 pointer-events-none"
+                              style={{
+                                top: 0,
+                                height: topUnavailableHeight,
+                                backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,0,0,0.05) 5px, rgba(255,0,0,0.05) 10px)'
+                              }}
+                            />
+                          )}
+                          {/* Bottom unavailable */}
                           <div
                             className="absolute w-full bg-red-50/50 pointer-events-none"
                             style={{
-                              top: 0,
-                              height: topUnavailableHeight,
+                              top: bottomUnavailableStart,
+                              height: bottomUnavailableHeight,
                               backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,0,0,0.05) 5px, rgba(255,0,0,0.05) 10px)'
                             }}
                           />
-                        )}
-                        {/* Bottom unavailable */}
+                        </>
+                      );
+                    })()}
+
+                    {/* Insert drop zones (start, between, end) */}
+                    {draggingFixtureId && insertionSlots.map(slot => {
+                      const isActive = insertTarget?.pitchId === pitch.id && insertTarget.index === slot.index;
+                      const previewHeight = Math.max(
+                        0,
+                        Math.min(draggingBlockHeight, gridHeight - slot.top)
+                      );
+
+                      return (
                         <div
-                          className="absolute w-full bg-red-50/50 pointer-events-none"
-                          style={{
-                            top: bottomUnavailableStart,
-                            height: bottomUnavailableHeight,
-                            backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,0,0,0.05) 5px, rgba(255,0,0,0.05) 10px)'
-                          }}
-                        />
-                      </>
-                    );
-                  })()}
+                          key={`insert-${pitch.id}-${slot.index}`}
+                          className="absolute left-[2.5%] w-[95%] -translate-y-1/2 z-30 pointer-events-auto"
+                          style={{ top: slot.top }}
+                        >
+                          <div
+                            className="absolute inset-x-0 -top-2 h-4"
+                            onDragOver={(e) => onDragOverInsert(e, pitch.id, slot.index)}
+                            onDrop={(e) => onDropInsert(e, pitch.id, slot.index)}
+                          />
+                          <div
+                            className={cn(
+                              "absolute inset-x-0 border-t-2 border-dashed pointer-events-none transition-all duration-150",
+                              isActive ? "border-emerald-500 opacity-100" : "border-sky-400/50 opacity-35"
+                            )}
+                          />
+                          {isActive && (
+                            <div className="absolute -top-3 right-0 rounded bg-emerald-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
+                              Insert here
+                            </div>
+                          )}
+                          {isActive && previewHeight > 0 && (
+                            <div
+                              className="absolute left-0 right-0 rounded border-2 border-emerald-500 bg-emerald-100/70 pointer-events-none"
+                              style={{ top: 0, height: previewHeight }}
+                            >
+                              <div className="absolute top-0.5 left-1 rounded bg-emerald-700/90 text-white px-1 py-0 text-[9px] font-semibold">
+                                New slot
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
 
-
-                  {/* Fixtures */}
-                  {assignedFixtures
-                    .filter(f => f.pitchId === pitch.id)
-                    .map(fixture => {
-                      const comp = competitions.find(c => c.id === fixture.competitionId);
-                      const groups = comp?.groups || [];
+                    {/* Fixtures */}
+                    {pitchFixtures.map(({ fixture, competitionId, groups }) => {
+                      const comp = competitions.find(c => c.id === competitionId);
                       const home = comp?.teams.find(t => t.id === fixture.homeTeamId);
                       const away = comp?.teams.find(t => t.id === fixture.awayTeamId);
 
@@ -412,12 +651,11 @@ const Schedule = () => {
                       const duration = fixture.duration || 20;
                       const slack = getFixtureSlack(fixture, groups);
 
-                      const viewStartMins = VIEW_START_HOUR * 60;
                       const top = (startMins - viewStartMins) * PIXELS_PER_MINUTE;
                       const heightMatch = duration * PIXELS_PER_MINUTE;
                       const heightSlack = slack * PIXELS_PER_MINUTE;
 
-                      if (top < 0 && top + heightMatch + heightSlack < 0) return null; // Fully out of view (top)
+                      if (top < 0 && top + heightMatch + heightSlack < 0) return null;
 
                       return (
                         <div
@@ -425,9 +663,13 @@ const Schedule = () => {
                           draggable
                           onDragStart={(e) => onDragStart(e, fixture.id)}
                           onDragEnd={onDragEnd}
+                          onDragOver={(e) => onDragOverFixture(e, fixture.id)}
+                          onDrop={(e) => onDropFixture(e, fixture.id)}
                           className={cn(
-                            "absolute w-[95%] left-[2.5%] rounded border shadow-sm cursor-move text-[10px] overflow-hidden group hover:z-20", // z-20 on hover to show above others if overlapping
-                            draggingFixtureId === fixture.id && "opacity-50"
+                            "absolute w-[95%] left-[2.5%] rounded border shadow-sm cursor-move text-[10px] overflow-hidden group hover:z-20 transition-all duration-200",
+                            draggingFixtureId === fixture.id && "opacity-50",
+                            dropTargetFixtureId === fixture.id && "ring-2 ring-amber-500 shadow-md scale-[1.01]",
+                            recentlySwappedIds.includes(fixture.id) && "ring-2 ring-emerald-500"
                           )}
                           style={{
                             top,
@@ -435,6 +677,17 @@ const Schedule = () => {
                           }}
                           title={`${fixture.startTime} - ${comp?.name} - ${home?.name} vs ${away?.name}`}
                         >
+                          {dropTargetFixtureId === fixture.id && (
+                            <div className="absolute top-0.5 right-5 rounded bg-amber-500/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
+                              Swap here
+                            </div>
+                          )}
+                          {recentlySwappedIds.includes(fixture.id) && (
+                            <div className="absolute top-0.5 right-5 rounded bg-emerald-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
+                              Swapped
+                            </div>
+                          )}
+
                           {/* Match Duration Area */}
                           <div
                             className="w-full bg-blue-100 flex flex-col px-1 py-0.5"
@@ -465,11 +718,11 @@ const Schedule = () => {
                           </button>
                         </div>
                       );
-                    })
-                  }
+                    })}
 
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -479,4 +732,3 @@ const Schedule = () => {
 };
 
 export default Schedule;
-
