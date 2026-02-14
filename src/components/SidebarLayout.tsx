@@ -50,6 +50,8 @@ export default function SidebarLayout() {
     }
   };
 
+  const isSchedulePage = location.pathname === "/schedule";
+
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
@@ -92,101 +94,108 @@ export default function SidebarLayout() {
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroup>
-          <SidebarGroup>
-            <SidebarGroupLabel>Competitions</SidebarGroupLabel>
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-              <DialogTrigger asChild>
-                <SidebarGroupAction title="Add Competition">
-                  <Plus /> <span className="sr-only">Add Competition</span>
-                </SidebarGroupAction>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Add Competition</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <Input
-                    placeholder="Competition Name"
-                    value={newCompName}
-                    onChange={(e) => setNewCompName(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-                  />
-                </div>
-                <DialogFooter>
-                  <Button onClick={handleCreate}>Create</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-            <SidebarMenu>
-              {competitions.map((comp) => (
-                <Collapsible
-                  key={comp.id}
-                  asChild
-                  defaultOpen={location.pathname.includes(comp.id)}
-                  className="group/collapsible"
-                >
-                  <SidebarMenuItem>
-                    <CollapsibleTrigger asChild>
-                      <SidebarMenuButton tooltip={comp.name}>
-                        <CompetitionBadge
-                          code={comp.code}
-                          color={comp.color}
-                          size="sm"
-                          className="h-5 w-5 text-[9px]"
-                        />
-                        <span>{comp.name}</span>
-                        <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                      </SidebarMenuButton>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <SidebarMenuSub>
-                        <SidebarMenuSubItem>
-                          <SidebarMenuSubButton
-                            asChild
-                            isActive={location.pathname === `/competition/${comp.id}/groups`}
-                          >
-                            <Link to={`/competition/${comp.id}/groups`}>
-                              <span>Groups</span>
-                            </Link>
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                        <SidebarMenuSubItem>
-                          <SidebarMenuSubButton
-                            asChild
-                            isActive={location.pathname === `/competition/${comp.id}/fixtures`}
-                          >
-                            <Link to={`/competition/${comp.id}/fixtures`}>
-                              <span>Fixtures</span>
-                            </Link>
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                         <SidebarMenuSubItem>
-                          <SidebarMenuSubButton
-                            asChild
-                            isActive={location.pathname === `/competition/${comp.id}/fixtures/unassigned`}
-                          >
-                            <Link to={`/competition/${comp.id}/fixtures/unassigned`}>
-                              <span>Unassigned</span>
-                            </Link>
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                        <SidebarMenuSubItem>
-                          <SidebarMenuSubButton
-                            asChild
-                            isActive={location.pathname === `/competition/${comp.id}/settings`}
-                          >
-                            <Link to={`/competition/${comp.id}/settings`}>
-                              <span>Settings</span>
-                            </Link>
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                      </SidebarMenuSub>
-                    </CollapsibleContent>
-                  </SidebarMenuItem>
-                </Collapsible>
-              ))}
-            </SidebarMenu>
-          </SidebarGroup>
+
+          {/* Portal Target for Schedule Page Tools */}
+          <div id="sidebar-schedule-portal" className="contents" />
+
+          {/* Standard Competition List - Hidden on Schedule Page */}
+          {!isSchedulePage && (
+            <SidebarGroup>
+              <SidebarGroupLabel>Competitions</SidebarGroupLabel>
+              <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                <DialogTrigger asChild>
+                  <SidebarGroupAction title="Add Competition">
+                    <Plus /> <span className="sr-only">Add Competition</span>
+                  </SidebarGroupAction>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add Competition</DialogTitle>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <Input
+                      placeholder="Competition Name"
+                      value={newCompName}
+                      onChange={(e) => setNewCompName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+                    />
+                  </div>
+                  <DialogFooter>
+                    <Button onClick={handleCreate}>Create</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+              <SidebarMenu>
+                {competitions.map((comp) => (
+                  <Collapsible
+                    key={comp.id}
+                    asChild
+                    defaultOpen={location.pathname.includes(comp.id)}
+                    className="group/collapsible"
+                  >
+                    <SidebarMenuItem>
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuButton tooltip={comp.name}>
+                          <CompetitionBadge
+                            code={comp.code}
+                            color={comp.color}
+                            size="sm"
+                            className="h-5 w-5 text-[9px]"
+                          />
+                          <span>{comp.name}</span>
+                          <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <SidebarMenuSub>
+                          <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={location.pathname === `/competition/${comp.id}/groups`}
+                            >
+                              <Link to={`/competition/${comp.id}/groups`}>
+                                <span>Groups</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                          <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={location.pathname === `/competition/${comp.id}/fixtures`}
+                            >
+                              <Link to={`/competition/${comp.id}/fixtures`}>
+                                <span>Fixtures</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                          <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={location.pathname === `/competition/${comp.id}/fixtures/unassigned`}
+                            >
+                              <Link to={`/competition/${comp.id}/fixtures/unassigned`}>
+                                <span>Unassigned</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                          <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={location.pathname === `/competition/${comp.id}/settings`}
+                            >
+                              <Link to={`/competition/${comp.id}/settings`}>
+                                <span>Settings</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        </SidebarMenuSub>
+                      </CollapsibleContent>
+                    </SidebarMenuItem>
+                  </Collapsible>
+                ))}
+              </SidebarMenu>
+            </SidebarGroup>
+          )}
         </SidebarContent>
         <SidebarFooter>
           <div className="p-2 text-xs text-center text-muted-foreground">
@@ -198,9 +207,9 @@ export default function SidebarLayout() {
         <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 h-4" />
-          {/* We could add breadcrumbs here later */}
+          {/* Breadcrumbs can go here */}
         </header>
-        <div className="flex-1 overflow-auto p-4">
+        <div className="flex-1 overflow-auto p-4 h-[calc(100vh-4rem)]">
           <Outlet />
         </div>
       </SidebarInset>
