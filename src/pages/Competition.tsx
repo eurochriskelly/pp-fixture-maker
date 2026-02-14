@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { KnockoutBuilderDialog } from '@/components/KnockoutBuilderDialog';
 import { TeamEditDialog } from '@/components/TeamEditDialog';
 import { cn } from '@/lib/utils';
+import { createGroupColorMap, getGroupColorFromMap } from '@/lib/groupColors';
 
 const Competition = () => {
   const { id } = useParams<{ id: string }>();
@@ -152,17 +153,12 @@ const Competition = () => {
     return map;
   }, [competition.groups]);
 
-  const groupColorPalette = ['#050816', '#121b36', '#1b2a45', '#0f2a2b', '#15192f', '#1b0f25', '#102f41', '#1f2933', '#181028'];
-  const groupColorMap = React.useMemo(() => {
-    const map = new Map<string, string>();
-    (competition.groups || []).forEach((group, index) => {
-      const color = groupColorPalette[index % groupColorPalette.length];
-      map.set(group.id, color);
-    });
-    return map;
-  }, [competition.groups]);
+  const groupColorMap = React.useMemo(
+    () => createGroupColorMap(competition.groups || []),
+    [competition.groups]
+  );
 
-  const getGroupColor = (groupId?: string) => (groupId ? (groupColorMap.get(groupId) ?? groupColorPalette[0]) : groupColorPalette[0]);
+  const getGroupColor = (groupId?: string) => getGroupColorFromMap(groupColorMap, groupId);
 
   const formatKnockoutCode = (fixture: Fixture) => {
     const { matchId = '', description = '', stage } = fixture;
