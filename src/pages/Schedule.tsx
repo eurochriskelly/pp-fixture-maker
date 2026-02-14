@@ -4,15 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Clock, ArrowLeft, Plus, X, ChevronDown, RotateCcw } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Clock, ArrowLeft, Plus, X, ChevronDown, RotateCcw, Trophy, Calendar, Users, GripVertical } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '@/components/ui/accordion';
 import { getFixtureSlack, minutesFromMidnight, timeFromMinutes } from '@/utils/scheduleUtils';
 import { Competition, Fixture, Group, Pitch } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -1566,69 +1564,96 @@ const Schedule = () => {
 
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Sidebar */}
-        <div className="w-80 flex-none flex flex-col gap-4 min-h-0 overflow-y-auto">
-          <Accordion type="single" collapsible className="w-full" defaultValue="competitions">
-            <AccordionItem value="competitions">
-              <AccordionTrigger>Competitions</AccordionTrigger>
-              <AccordionContent>
-                <div className="space-y-3 pt-2">
-                  {competitions.map((comp) => {
-                    const groups = comp.groups ?? [];
-                    const compUnassignedFixtures = unassignedFixtures.filter(
-                      (fixture) => fixture.competitionId === comp.id
-                    );
-                    const competitionColor = comp.color ?? '#1e293b';
-                    const isOpen = openCompetitionIds.includes(comp.id);
-                    const groupColorMap = createGroupColorMap(groups);
+        <div className="w-80 flex-none flex flex-col h-full bg-white border-r border-slate-200 shadow-[4px_0_24px_-12px_rgba(0,0,0,0.1)] z-20">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white/50 backdrop-blur-sm sticky top-0 z-10">
+            <div className="flex items-center gap-2.5">
+              <div className="p-1.5 bg-indigo-50 rounded-lg">
+                <Trophy className="h-4 w-4 text-indigo-600" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 tracking-tight leading-none">Competitions</h2>
+                <p className="text-[10px] text-muted-foreground font-medium mt-0.5 uppercase tracking-wider">Management</p>
+              </div>
+            </div>
+            <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-slate-200 font-semibold text-[10px] h-5 px-2">
+              {competitions.length}
+            </Badge>
+          </div>
+          
+          <ScrollArea className="flex-1 w-full bg-slate-50/30">
+            <div className="p-4 space-y-3">
+              {competitions.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 px-4 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50">
+                  <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-3 shadow-inner">
+                    <Trophy className="h-6 w-6 text-slate-300" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-slate-900 mb-1">No Competitions</h3>
+                  <p className="text-xs text-muted-foreground text-center mb-4 max-w-[180px]">
+                    Create a competition to start scheduling matches.
+                  </p>
+                  <Button variant="outline" size="sm" onClick={() => navigate('/competitions')} className="h-8 text-xs font-medium">
+                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    Create New
+                  </Button>
+                </div>
+              ) : (
+                competitions.map((comp) => {
+                  const groups = comp.groups ?? [];
+                  const compUnassignedFixtures = unassignedFixtures.filter(
+                    (fixture) => fixture.competitionId === comp.id
+                  );
+                  const competitionColor = comp.color ?? '#1e293b';
+                  const isOpen = openCompetitionIds.includes(comp.id);
+                  const groupColorMap = createGroupColorMap(groups);
 
-                    return (
+                  return (
+                    <Card key={comp.id} className={cn("overflow-hidden border transition-all duration-300 group/card", isOpen ? "border-indigo-200 shadow-md ring-1 ring-indigo-50" : "border-slate-200 shadow-sm hover:border-indigo-200 hover:shadow-md bg-white")}>
+                      <div className="h-1 w-full" style={{ backgroundColor: competitionColor }} />
                       <div
-                        key={comp.id}
-                        className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                        className="flex items-center justify-between p-3 cursor-pointer select-none bg-white hover:bg-slate-50/80 transition-colors relative"
+                        onClick={() => toggleCompetition(comp.id)}
                       >
-                        <div
-                          className="absolute inset-y-0 left-0 w-1 rounded-l-2xl"
-                          style={{ backgroundColor: competitionColor }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => toggleCompetition(comp.id)}
-                          className="w-full flex items-center justify-between gap-2 border-b px-4 py-3 text-sm font-semibold text-slate-900"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="text-base font-semibold text-slate-900">{comp.name}</span>
-                            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                              {comp.fixtures.length} FIXTURES
-                            </span>
+                        <div className="flex items-center gap-3 overflow-hidden">
+                          <div className="flex flex-col min-w-0">
+                            <h3 className="text-sm font-bold text-slate-900 truncate leading-tight mb-1 group-hover/card:text-indigo-700 transition-colors">{comp.name}</h3>
+                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+                              <span className="flex items-center gap-1 bg-slate-100/50 px-1.5 py-0.5 rounded-sm">
+                                <Calendar className="h-3 w-3 text-slate-400" />
+                                {comp.fixtures.length} Fixtures
+                              </span>
+                            </div>
                           </div>
-                          <ChevronDown
-                            className={cn('h-4 w-4 transition-transform duration-200', {
-                              'rotate-180': isOpen,
-                            })}
-                          />
-                        </button>
-                        {isOpen && (
-                          <div className="space-y-5 px-4 pb-4 pt-3">
-                            <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50/80">
+                        </div>
+                        <div className={cn("h-6 w-6 rounded-full flex items-center justify-center transition-all duration-200", isOpen ? "bg-indigo-50 text-indigo-600 rotate-180" : "bg-slate-50 text-slate-400 group-hover/card:bg-slate-100")}>
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </div>
+                      </div>
+                      
+                      {isOpen && (
+                        <div className="bg-slate-50/50 border-t border-slate-100 animate-in slide-in-from-top-1 fade-in-0 duration-200">
+                          <div className="p-3 space-y-4">
+                            {/* Groups Section */}
+                            <div className="space-y-2">
                               <button
                                 type="button"
                                 onClick={() => toggleCompetitionSection(comp.id, 'groups')}
-                                className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-slate-900"
+                                className="flex w-full items-center justify-between text-xs font-semibold text-slate-600 hover:text-indigo-600 transition-colors group/sec px-1"
                               >
                                 <div className="flex items-center gap-2">
-                                  <span>Groups</span>
-                                  <span className="text-[11px] font-normal text-muted-foreground">
-                                    ({groups.length})
-                                  </span>
+                                  <div className="p-1 rounded-md bg-white border border-slate-200 shadow-sm group-hover/sec:border-indigo-200 transition-colors">
+                                    <Users className="h-3 w-3 text-slate-400 group-hover/sec:text-indigo-500" />
+                                  </div>
+                                  <span>Groups & Settings</span>
                                 </div>
                                 <ChevronDown
-                                  className={cn('h-4 w-4 transition-transform duration-200', {
+                                  className={cn('h-3 w-3 text-slate-400 transition-transform duration-200', {
                                     'rotate-180': competitionPanelState[comp.id]?.groups,
                                   })}
                                 />
                               </button>
+                              
                               {competitionPanelState[comp.id]?.groups && (
-                                <div className="space-y-2 px-4 pb-3">
+                                <div className="pl-1 space-y-3 pt-1 animate-in slide-in-from-top-1 fade-in-0 duration-150">
                                   {groups.length > 0 ? (
                                     groups.map((group, groupIndex) => {
                                       const selectedPitchIds = getGroupPitchIds(group);
@@ -1637,131 +1662,142 @@ const Schedule = () => {
                                       return (
                                         <div
                                           key={group.id}
-                                          className="rounded-xl border border-slate-200 bg-white p-3 shadow-inner space-y-3 text-xs"
+                                          className="rounded-lg border border-slate-200 bg-white shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden"
                                         >
-                                          <div className="flex items-center justify-between">
+                                          <div className="px-3 py-2 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
                                             <div className="flex items-center gap-2">
                                               <span
-                                                className="rounded-[12px] px-3 py-1 text-sm font-semibold uppercase text-white shadow-sm"
+                                                className="h-2 w-2 rounded-full ring-2 ring-white shadow-sm"
                                                 style={{ backgroundColor: groupColor }}
-                                              >
-                                                GP. {groupIndex + 1}
-                                              </span>
-                                              <span className="text-sm font-semibold text-slate-900">
+                                              />
+                                              <span className="text-xs font-bold text-slate-800">
                                                 {group.name || `Group ${groupIndex + 1}`}
                                               </span>
                                             </div>
-                                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                              {selectedPitchIds.length} assigned
-                                            </span>
+                                            <Badge variant="secondary" className={cn("text-[9px] h-4 px-1.5 font-medium border-0", selectedPitchIds.length > 0 ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500")}>
+                                              {selectedPitchIds.length} Pitch{selectedPitchIds.length !== 1 ? 'es' : ''}
+                                            </Badge>
                                           </div>
-                                          <div className="grid gap-3 sm:grid-cols-2 text-[11px]">
-                                            <div className="flex flex-col space-y-1">
-                                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                                Duration (mins)
-                                              </span>
-                                              <Input
-                                                type="number"
-                                                min={1}
-                                                value={group.defaultDuration ?? DEFAULT_GROUP_DURATION}
-                                                onChange={(event) => {
-                                                  const nextDuration = Number.parseInt(event.target.value, 10);
-                                                  if (Number.isNaN(nextDuration)) return;
-                                                  updateGroup(comp.id, group.id, {
-                                                    defaultDuration: Math.max(1, nextDuration),
-                                                  });
-                                                }}
-                                                className="h-8 w-full text-xs"
-                                              />
-                                            </div>
-                                            <div className="flex flex-col space-y-1">
-                                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                                Slack (mins)
-                                              </span>
-                                              <Input
-                                                type="number"
-                                                min={0}
-                                                value={group.defaultSlack ?? DEFAULT_GROUP_SLACK}
-                                                onChange={(event) => {
-                                                  const nextSlack = Number.parseInt(event.target.value, 10);
-                                                  if (Number.isNaN(nextSlack)) return;
-                                                  updateGroup(comp.id, group.id, {
-                                                    defaultSlack: Math.max(0, nextSlack),
-                                                  });
-                                                }}
-                                                className="h-8 w-full text-xs"
-                                              />
-                                            </div>
-                                          </div>
-                                          <div className="space-y-2">
-                                            <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-muted-foreground">
-                                              <span>Pitches</span>
-                                              <span>{selectedPitchIds.length} assigned</span>
-                                            </div>
-                                            {pitches.length === 0 ? (
-                                              <div className="rounded-md border border-dashed border-slate-200 px-2 py-1 text-[11px] text-muted-foreground">
-                                                Create pitches to assign here.
+                                          
+                                          <div className="p-2.5 space-y-3">
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <div className="space-y-1">
+                                                <label className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider pl-0.5">Duration</label>
+                                                <div className="relative">
+                                                  <Input
+                                                    type="number"
+                                                    min={1}
+                                                    value={group.defaultDuration ?? DEFAULT_GROUP_DURATION}
+                                                    onChange={(event) => {
+                                                      const nextDuration = Number.parseInt(event.target.value, 10);
+                                                      if (Number.isNaN(nextDuration)) return;
+                                                      updateGroup(comp.id, group.id, {
+                                                        defaultDuration: Math.max(1, nextDuration),
+                                                      });
+                                                    }}
+                                                    className="h-7 w-full text-xs pr-6 bg-slate-50/50 border-slate-200 focus:bg-white focus:ring-1 focus:ring-indigo-500 font-medium transition-all"
+                                                  />
+                                                  <span className="absolute right-2 top-1.5 text-[10px] text-slate-400 font-medium pointer-events-none">m</span>
+                                                </div>
                                               </div>
-                                            ) : (
-                                              <div className="grid gap-2 sm:grid-cols-2">
-                                                {pitches.map((pitch) => (
-                                                  <label
-                                                    key={pitch.id}
-                                                    className="flex items-center gap-2 rounded-md border border-transparent px-2 py-1 text-[12px] transition-colors hover:border-slate-200"
-                                                  >
-                                                    <Checkbox
-                                                      checked={selectedPitchIds.includes(pitch.id)}
-                                                      onCheckedChange={(checked) =>
-                                                        toggleGroupPitch(comp.id, group, pitch.id, checked === true)
-                                                      }
-                                                    />
-                                                    <span className="truncate">{pitch.name}</span>
-                                                  </label>
-                                                ))}
+                                              <div className="space-y-1">
+                                                <label className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider pl-0.5">Slack</label>
+                                                <div className="relative">
+                                                  <Input
+                                                    type="number"
+                                                    min={0}
+                                                    value={group.defaultSlack ?? DEFAULT_GROUP_SLACK}
+                                                    onChange={(event) => {
+                                                      const nextSlack = Number.parseInt(event.target.value, 10);
+                                                      if (Number.isNaN(nextSlack)) return;
+                                                      updateGroup(comp.id, group.id, {
+                                                        defaultSlack: Math.max(0, nextSlack),
+                                                      });
+                                                    }}
+                                                    className="h-7 w-full text-xs pr-6 bg-slate-50/50 border-slate-200 focus:bg-white focus:ring-1 focus:ring-indigo-500 font-medium transition-all"
+                                                  />
+                                                  <span className="absolute right-2 top-1.5 text-[10px] text-slate-400 font-medium pointer-events-none">m</span>
+                                                </div>
                                               </div>
-                                            )}
+                                            </div>
+                                            
+                                            <div className="space-y-1.5">
+                                              <div className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider pl-0.5">
+                                                Assign Pitches
+                                              </div>
+                                              <div className="flex flex-wrap gap-1.5">
+                                                {pitches.map((pitch) => {
+                                                  const isChecked = selectedPitchIds.includes(pitch.id);
+                                                  return (
+                                                    <label
+                                                      key={pitch.id}
+                                                      className={cn(
+                                                        "flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] cursor-pointer border transition-all duration-200 select-none",
+                                                        isChecked
+                                                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm"
+                                                          : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                                                      )}
+                                                    >
+                                                      <Checkbox
+                                                        className={cn("h-3 w-3 rounded-[3px] border-slate-300 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600 transition-all", isChecked ? "opacity-100" : "opacity-50 group-hover:opacity-100")}
+                                                        checked={isChecked}
+                                                        onCheckedChange={(checked) =>
+                                                          toggleGroupPitch(comp.id, group, pitch.id, checked === true)
+                                                        }
+                                                      />
+                                                      <span className="font-medium truncate max-w-[80px]">{pitch.name}</span>
+                                                    </label>
+                                                  );
+                                                })}
+                                              </div>
+                                            </div>
                                           </div>
                                         </div>
                                       );
                                     })
                                   ) : (
-                                    <div className="rounded-md border border-dashed border-slate-200 px-2 py-1 text-[11px] text-muted-foreground">
-                                      No groups defined
+                                    <div className="rounded-lg border border-dashed border-slate-200 p-4 text-center bg-slate-50/50">
+                                      <p className="text-xs text-muted-foreground font-medium">No groups defined</p>
                                     </div>
                                   )}
                                 </div>
                               )}
                             </div>
 
-                            <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50/80">
+                            <Separator className="bg-slate-200/60" />
+
+                            {/* Fixtures Section */}
+                            <div className="space-y-2">
                               <button
                                 type="button"
                                 onClick={() => toggleCompetitionSection(comp.id, 'fixtures')}
-                                className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-slate-900"
+                                className="flex w-full items-center justify-between text-xs font-semibold text-slate-600 hover:text-indigo-600 transition-colors group/sec px-1"
                               >
                                 <div className="flex items-center gap-2">
-                                  <span>Fixtures</span>
-                                  <span className="text-[11px] font-normal text-muted-foreground">
-                                    ({comp.fixtures.length - compUnassignedFixtures.length} assigned / {comp.fixtures.length})
-                                  </span>
+                                  <div className="p-1 rounded-md bg-white border border-slate-200 shadow-sm group-hover/sec:border-indigo-200 transition-colors">
+                                    <GripVertical className="h-3 w-3 text-slate-400 group-hover/sec:text-indigo-500" />
+                                  </div>
+                                  <span>Unscheduled Fixtures</span>
                                 </div>
-                                <ChevronDown
-                                  className={cn('h-4 w-4 transition-transform duration-200', {
-                                    'rotate-180': competitionPanelState[comp.id]?.fixtures,
-                                  })}
-                                />
+                                <div className="flex items-center gap-2">
+                                  {compUnassignedFixtures.length > 0 && (
+                                    <Badge variant="secondary" className="h-4 min-w-[1.25rem] justify-center px-1 text-[9px] bg-indigo-100 text-indigo-700 font-bold border-indigo-100 shadow-sm">
+                                      {compUnassignedFixtures.length}
+                                    </Badge>
+                                  )}
+                                  <ChevronDown
+                                    className={cn('h-3 w-3 text-slate-400 transition-transform duration-200', {
+                                      'rotate-180': competitionPanelState[comp.id]?.fixtures,
+                                    })}
+                                  />
+                                </div>
                               </button>
+                              
                               {competitionPanelState[comp.id]?.fixtures && (
                                 <div
                                   onDragOver={onDragOver}
-                                  className="space-y-2 px-4 pb-3"
+                                  className="pt-1 pl-1 animate-in slide-in-from-top-1 fade-in-0 duration-150"
                                 >
-                                  <div className="flex items-center justify-between text-[9px] uppercase tracking-wide text-muted-foreground">
-                                    <span>Unassigned</span>
-                                    <span className="text-[11px] font-semibold text-slate-900">
-                                      {compUnassignedFixtures.length}
-                                    </span>
-                                  </div>
                                   <UnassignedCompetitionSection
                                     key={`${comp.id}-unassigned`}
                                     comp={comp}
@@ -1777,14 +1813,14 @@ const Schedule = () => {
                               )}
                             </div>
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })
+              )}
+            </div>
+          </ScrollArea>
         </div>
 
         {/* Main Time Grid */}
