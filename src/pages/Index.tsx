@@ -87,7 +87,7 @@ const Index = () => {
                   <span className="font-medium text-foreground">{comp.fixtures.length}</span>
                 </div>
               </div>
-              <Link to={`/competition/${comp.id}`}>
+              <Link to={`/competition/${comp.id}/groups`}>
                 <Button className="w-full" variant="secondary">
                   Manage Details <Settings className="ml-2 h-4 w-4" />
                 </Button>
