@@ -343,61 +343,55 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setPitches(pitches.filter(p => p.id !== id));
   };
 
+  const parseTimeToMinutes = (time?: string, fallback: number = 10 * 60) => {
+    if (!time) return fallback;
+    const [hours, minutes] = time.split(':').map(Number);
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return fallback;
+    return hours * 60 + minutes;
+  };
+
+  const toTimeString = (totalMinutes: number) => {
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+  };
+
   const autoScheduleMatches = (competitionId: string) => {
-    // 1. Get competition and groups
-    const comp = competitions.find(c => c.id === competitionId);
-    if (!comp || !comp.groups || comp.groups.length === 0) return;
+    setCompetitions(prevCompetitions =>
+      prevCompetitions.map(comp => {
+        if (comp.id !== competitionId || comp.fixtures.length === 0) return comp;
 
-    // 2. Prepare group schedules
-    // Map groupID -> current time cursor (Date object or minutes from midnight)
-    const groupCursors: Record<string, number> = {};
+        const fallbackPitchId = pitches[0]?.id;
+        const groupsById = new Map((comp.groups || []).map(group => [group.id, group]));
+        const groupCursors: Record<string, number> = {};
 
-    comp.groups.forEach(group => {
-      if (group.primaryPitchId) {
-        // Find pitch start time
-        const pitch = pitches.find(p => p.id === group.primaryPitchId);
-        if (pitch && pitch.startTime) {
-          const [hours, minutes] = pitch.startTime.split(':').map(Number);
-          groupCursors[group.id] = hours * 60 + minutes;
-        } else {
-          // Default to 10:00 AM if no pitch or start time
-          groupCursors[group.id] = 10 * 60;
-        }
-      } else {
-        groupCursors[group.id] = 10 * 60;
-      }
-    });
+        const updatedFixtures = comp.fixtures.map(fixture => {
+          const group = fixture.groupId ? groupsById.get(fixture.groupId) : undefined;
+          const cursorKey = group?.id || '__ungrouped__';
 
-    // 3. Iterate fixtures and assign times
-    const updatedFixtures = comp.fixtures.map(fixture => {
-      // Only schedule if it belongs to a group and that group has a cursor
-      if (fixture.groupId && groupCursors[fixture.groupId] !== undefined) {
-        const group = comp.groups.find(g => g.id === fixture.groupId);
-        if (!group) return fixture;
+          if (groupCursors[cursorKey] === undefined) {
+            const pitchId = group?.primaryPitchId || fixture.pitchId || fallbackPitchId;
+            const pitchStart = pitches.find(p => p.id === pitchId)?.startTime;
+            groupCursors[cursorKey] = parseTimeToMinutes(pitchStart);
+          }
 
-        const duration = group.defaultDuration || 20;
-        const slack = group.defaultSlack || 5;
-        const currentTime = groupCursors[fixture.groupId];
+          const duration = group?.defaultDuration ?? fixture.duration ?? 20;
+          const slack = group?.defaultSlack ?? 5;
+          const startMinutes = groupCursors[cursorKey];
 
-        // Convert back to HH:mm
-        const hours = Math.floor(currentTime / 60);
-        const minutes = currentTime % 60;
-        const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+          groupCursors[cursorKey] += duration + slack;
 
-        // Increment cursor
-        groupCursors[fixture.groupId] += duration + slack;
+          return {
+            ...fixture,
+            pitchId: group?.primaryPitchId || fixture.pitchId || fallbackPitchId,
+            startTime: toTimeString(startMinutes),
+            duration
+          };
+        });
 
-        return {
-          ...fixture,
-          pitchId: group.primaryPitchId, // Assign to primary pitch
-          startTime: timeString,
-          duration: duration
-        };
-      }
-      return fixture;
-    });
-
-    setCompetitions(competitions.map(c => c.id === competitionId ? { ...c, fixtures: updatedFixtures } : c));
+        return { ...comp, fixtures: updatedFixtures };
+      })
+    );
   };
 
   const reorderFixtureToPitch = (fixtureId: string, targetPitchId: string, targetIndex: number = -1) => {
