@@ -98,7 +98,7 @@ const Competition = () => {
               <button className="relative group rounded-full">
                 <CompetitionBadge
                   code={competition.code || competition.name.substring(0, 2).toUpperCase()}
-                  index={competitions.indexOf(competition)}
+                  color={competition.color}
                   size="lg"
                   className="w-16 h-16 text-xl shadow-md"
                 />

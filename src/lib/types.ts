@@ -32,6 +32,7 @@ export interface Competition {
   id: string;
   name: string;
   code?: string;
+  color?: string; // Hex color for visual identification
   teams: Team[];
   groups: Group[];
   fixtures: Fixture[];

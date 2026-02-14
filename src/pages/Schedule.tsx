@@ -3,23 +3,34 @@ import { useTournament } from '@/context/TournamentContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Clock, ArrowLeft, Plus, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { v4 as uuidv4 } from 'uuid';
 import { GroupSettingsPanel } from '@/components/GroupSettingsPanel';
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "@/components/ui/accordion";
+} from '@/components/ui/accordion';
 import { getFixtureSlack, minutesFromMidnight, timeFromMinutes } from '@/utils/scheduleUtils';
-import { Fixture, Group } from '@/lib/types';
+import { Fixture, Group, Pitch } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const PIXELS_PER_MINUTE = 2;
 const VIEW_START_HOUR = 8;
 const VIEW_END_HOUR = 20;
+const DEFAULT_PITCH_START = '09:00';
+const DEFAULT_PITCH_END = '18:00';
+const DEFAULT_ASSIGN_TIME = '10:00';
+const DEFAULT_GROUP_DURATION = 20;
+const DEFAULT_GROUP_SLACK = 5;
+const MIN_PITCH_WINDOW_MINUTES = 10;
+const DRAG_SNAP_MINUTES = 5;
+const DEFAULT_BREAK_DURATION = 15;
+const MIN_BREAK_DURATION = 5;
+const PITCH_BREAKS_STORAGE_KEY = 'tournament_pitch_breaks_v1';
+const BREAK_PATTERN_DARK = 'repeating-linear-gradient(45deg, #1f2937, #1f2937 4px, #111827 4px, #111827 8px)';
 
 type PitchFixtureItem = {
   competitionId: string;
@@ -27,10 +38,45 @@ type PitchFixtureItem = {
   fixture: Fixture;
 };
 
+type PitchBreakItem = {
+  id: string;
+  pitchId: string;
+  startTime: string;
+  duration: number;
+  label: string;
+};
+
+type PitchTimelineItem =
+  | { kind: 'fixture'; item: PitchFixtureItem }
+  | { kind: 'break'; item: PitchBreakItem };
+
 type FixtureBatchUpdate = {
   competitionId: string;
   fixtureId: string;
   updates: Partial<Fixture>;
+};
+
+type BreakBatchUpdate = {
+  breakId: string;
+  updates: Partial<PitchBreakItem>;
+};
+
+type PitchDraft = {
+  name: string;
+  startTime: string;
+  endTime: string;
+};
+
+type PitchBoundaryDragState = {
+  pitchId: string;
+  boundary: 'startTime' | 'endTime';
+};
+
+type BreakResizeDragState = {
+  breakId: string;
+  pitchId: string;
+  startClientY: number;
+  initialDuration: number;
 };
 
 const Schedule = () => {
@@ -38,6 +84,7 @@ const Schedule = () => {
     competitions,
     pitches,
     addPitch,
+    updatePitch,
     deletePitch,
     updateFixture,
     autoScheduleMatches,
@@ -45,15 +92,42 @@ const Schedule = () => {
   } = useTournament();
   const navigate = useNavigate();
 
-  const [newPitchName, setNewPitchName] = React.useState('');
-  const [pitchStart, setPitchStart] = React.useState('09:00');
-  const [pitchEnd, setPitchEnd] = React.useState('18:00');
-  const [startTime] = React.useState('10:00');
+  const [pitchDrafts, setPitchDrafts] = React.useState<Record<string, PitchDraft>>({});
+  const pitchDraftsRef = React.useRef<Record<string, PitchDraft>>({});
+  const [pitchBreaks, setPitchBreaks] = React.useState<PitchBreakItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(PITCH_BREAKS_STORAGE_KEY);
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .filter((item) =>
+          item &&
+          typeof item.id === 'string' &&
+          typeof item.pitchId === 'string' &&
+          typeof item.startTime === 'string'
+        )
+        .map((item) => ({
+          id: item.id,
+          pitchId: item.pitchId,
+          startTime: item.startTime,
+          duration: Math.max(MIN_BREAK_DURATION, Number(item.duration) || DEFAULT_BREAK_DURATION),
+          label: (typeof item.label === 'string' && item.label.trim()) || 'Break',
+        }));
+    } catch {
+      return [];
+    }
+  });
+  const gridScrollRef = React.useRef<HTMLDivElement | null>(null);
+  const [draggingPitchBoundary, setDraggingPitchBoundary] = React.useState<PitchBoundaryDragState | null>(null);
+  const [draggingBreakResize, setDraggingBreakResize] = React.useState<BreakResizeDragState | null>(null);
 
   // Drag state
   const [draggingFixtureId, setDraggingFixtureId] = React.useState<string | null>(null);
   const [dropTargetFixtureId, setDropTargetFixtureId] = React.useState<string | null>(null);
   const [insertTarget, setInsertTarget] = React.useState<{ pitchId: string; index: number } | null>(null);
+  const hasCapturedGroupTimingRef = React.useRef(false);
+  const previousGroupTimingRef = React.useRef<Map<string, { duration: number; slack: number }>>(new Map());
   const [recentlyChangedIds, setRecentlyChangedIds] = React.useState<string[]>([]);
   const [recentlyPrimaryChangedId, setRecentlyPrimaryChangedId] = React.useState<string | null>(null);
   const [recentlySwappedIds, setRecentlySwappedIds] = React.useState<string[]>([]);
@@ -77,6 +151,10 @@ const Schedule = () => {
   }, []);
 
   React.useEffect(() => {
+    localStorage.setItem(PITCH_BREAKS_STORAGE_KEY, JSON.stringify(pitchBreaks));
+  }, [pitchBreaks]);
+
+  React.useEffect(() => {
     const resetDragUi = () => {
       clearDragState();
     };
@@ -90,18 +168,224 @@ const Schedule = () => {
     };
   }, [clearDragState]);
 
-  const fixtureById = new Map<string, Fixture>();
-  competitions.forEach(comp => {
-    comp.fixtures.forEach(fixture => {
-      fixtureById.set(fixture.id, fixture);
+  React.useEffect(() => {
+    const activePitchIds = new Set(pitches.map((pitch) => pitch.id));
+    setPitchBreaks((current) => current.filter((pitchBreak) => activePitchIds.has(pitchBreak.pitchId)));
+  }, [pitches]);
+
+  React.useEffect(() => {
+    setPitchDrafts((current) => {
+      const next: Record<string, PitchDraft> = {};
+
+      pitches.forEach((pitch) => {
+        const draft = current[pitch.id];
+        next[pitch.id] = {
+          name: draft?.name ?? pitch.name,
+          startTime: draft?.startTime ?? pitch.startTime ?? DEFAULT_PITCH_START,
+          endTime: draft?.endTime ?? pitch.endTime ?? DEFAULT_PITCH_END,
+        };
+      });
+
+      return next;
     });
-  });
+  }, [pitches]);
+
+  React.useEffect(() => {
+    pitchDraftsRef.current = pitchDrafts;
+  }, [pitchDrafts]);
+
+  const effectivePitches = React.useMemo(
+    () =>
+      pitches.map((pitch) => {
+        const draft = pitchDrafts[pitch.id];
+
+        return {
+          ...pitch,
+          name: draft?.name ?? pitch.name,
+          startTime: draft?.startTime ?? pitch.startTime ?? DEFAULT_PITCH_START,
+          endTime: draft?.endTime ?? pitch.endTime ?? DEFAULT_PITCH_END,
+        };
+      }),
+    [pitches, pitchDrafts]
+  );
+
+  const effectivePitchById = React.useMemo(
+    () => new Map(effectivePitches.map((pitch) => [pitch.id, pitch])),
+    [effectivePitches]
+  );
+
+  const commitPitchDraft = React.useCallback(
+    (pitchId: string, fields: Array<'name' | 'startTime' | 'endTime'>) => {
+      const original = pitches.find((pitch) => pitch.id === pitchId);
+      const draft = pitchDraftsRef.current[pitchId];
+
+      if (!original || !draft) return;
+
+      const updates: Partial<Pitch> = {};
+
+      if (fields.includes('name')) {
+        const nextName = draft.name.trim() || original.name;
+        if (nextName !== original.name) {
+          updates.name = nextName;
+        }
+
+        if (nextName !== draft.name) {
+          setPitchDrafts((current) => ({
+            ...current,
+            [pitchId]: {
+              ...current[pitchId],
+              name: nextName,
+            },
+          }));
+        }
+      }
+
+      if (fields.includes('startTime') || fields.includes('endTime')) {
+        const nextStart = draft.startTime || DEFAULT_PITCH_START;
+        const nextEnd = draft.endTime || DEFAULT_PITCH_END;
+
+        if (nextStart !== (original.startTime ?? DEFAULT_PITCH_START)) {
+          updates.startTime = nextStart;
+        }
+        if (nextEnd !== (original.endTime ?? DEFAULT_PITCH_END)) {
+          updates.endTime = nextEnd;
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        updatePitch(pitchId, updates);
+      }
+    },
+    [pitches, updatePitch]
+  );
 
   const handleAddPitch = () => {
-    if (newPitchName.trim()) {
-      addPitch(newPitchName, pitchStart, pitchEnd);
-      setNewPitchName('');
+    let counter = effectivePitches.length + 1;
+    let name = `Pitch ${counter}`;
+    const lowerNames = new Set(effectivePitches.map((pitch) => pitch.name.trim().toLowerCase()));
+
+    while (lowerNames.has(name.toLowerCase())) {
+      counter += 1;
+      name = `Pitch ${counter}`;
     }
+
+    addPitch(name, DEFAULT_PITCH_START, DEFAULT_PITCH_END);
+  };
+
+  const handleDeletePitch = (pitchId: string) => {
+    const pitch = effectivePitchById.get(pitchId);
+    if (!pitch) return;
+
+    const confirmed = window.confirm(`Remove ${pitch.name}? Fixtures on this pitch will be unassigned.`);
+    if (!confirmed) return;
+
+    deletePitch(pitchId);
+    setPitchBreaks((current) => current.filter((pitchBreak) => pitchBreak.pitchId !== pitchId));
+    setPitchDrafts((current) => {
+      const next = { ...current };
+      delete next[pitchId];
+      return next;
+    });
+  };
+
+  const updatePitchDraftField = (pitchId: string, field: keyof PitchDraft, value: string) => {
+    setPitchDrafts((current) => {
+      const base = current[pitchId] ?? {
+        name: effectivePitchById.get(pitchId)?.name ?? 'Pitch',
+        startTime: effectivePitchById.get(pitchId)?.startTime ?? DEFAULT_PITCH_START,
+        endTime: effectivePitchById.get(pitchId)?.endTime ?? DEFAULT_PITCH_END,
+      };
+
+      return {
+        ...current,
+        [pitchId]: {
+          ...base,
+          [field]: value,
+        },
+      };
+    });
+  };
+
+  React.useEffect(() => {
+    if (!draggingPitchBoundary) return;
+
+    const onMouseMove = (event: MouseEvent) => {
+      const container = gridScrollRef.current;
+      if (!container) return;
+
+      const rect = container.getBoundingClientRect();
+      const yInGrid = event.clientY - rect.top + container.scrollTop;
+      const rawMinutes = VIEW_START_HOUR * 60 + Math.round(yInGrid / PIXELS_PER_MINUTE);
+      const snappedMinutes = Math.round(rawMinutes / DRAG_SNAP_MINUTES) * DRAG_SNAP_MINUTES;
+      const minMinutes = VIEW_START_HOUR * 60;
+      const maxMinutes = VIEW_END_HOUR * 60;
+      const clampedMinutes = Math.max(minMinutes, Math.min(maxMinutes, snappedMinutes));
+
+      setPitchDrafts((current) => {
+        const pitchId = draggingPitchBoundary.pitchId;
+        const sourcePitch = pitches.find((pitch) => pitch.id === pitchId);
+        const base = current[pitchId] ?? {
+          name: sourcePitch?.name ?? 'Pitch',
+          startTime: sourcePitch?.startTime ?? DEFAULT_PITCH_START,
+          endTime: sourcePitch?.endTime ?? DEFAULT_PITCH_END,
+        };
+
+        let startMinutes = minutesFromMidnight(base.startTime);
+        let endMinutes = minutesFromMidnight(base.endTime);
+
+        if (draggingPitchBoundary.boundary === 'startTime') {
+          startMinutes = Math.max(
+            minMinutes,
+            Math.min(clampedMinutes, endMinutes - MIN_PITCH_WINDOW_MINUTES)
+          );
+        } else {
+          endMinutes = Math.min(
+            maxMinutes,
+            Math.max(clampedMinutes, startMinutes + MIN_PITCH_WINDOW_MINUTES)
+          );
+        }
+
+        const nextStart = timeFromMinutes(startMinutes);
+        const nextEnd = timeFromMinutes(endMinutes);
+
+        if (nextStart === base.startTime && nextEnd === base.endTime) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [pitchId]: {
+            ...base,
+            startTime: nextStart,
+            endTime: nextEnd,
+          },
+        };
+      });
+    };
+
+    const onMouseUp = () => {
+      const pitchId = draggingPitchBoundary.pitchId;
+      commitPitchDraft(pitchId, ['startTime', 'endTime']);
+      setDraggingPitchBoundary(null);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [draggingPitchBoundary, commitPitchDraft, pitches]);
+
+  const onPitchBoundaryMouseDown = (
+    event: React.MouseEvent,
+    pitchId: string,
+    boundary: 'startTime' | 'endTime'
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDraggingPitchBoundary({ pitchId, boundary });
   };
 
   const handleAutoSchedule = () => {
@@ -137,7 +421,7 @@ const Schedule = () => {
 
   const onDragEnd = () => {
     clearDragState();
-  }
+  };
 
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -163,6 +447,28 @@ const Schedule = () => {
     setDropTargetFixtureId(null);
     setInsertTarget({ pitchId, index });
   };
+
+  const fixtureById = new Map<string, Fixture>();
+  competitions.forEach(comp => {
+    comp.fixtures.forEach(fixture => {
+      fixtureById.set(fixture.id, fixture);
+    });
+  });
+
+  const groupTimingSnapshot = React.useMemo(() => {
+    const snapshot = new Map<string, { duration: number; slack: number }>();
+
+    competitions.forEach((competition) => {
+      (competition.groups || []).forEach((group) => {
+        snapshot.set(`${competition.id}:${group.id}`, {
+          duration: group.defaultDuration ?? DEFAULT_GROUP_DURATION,
+          slack: group.defaultSlack ?? DEFAULT_GROUP_SLACK,
+        });
+      });
+    });
+
+    return snapshot;
+  }, [competitions]);
 
   const showSwapFeedback = (fixtureIds: string[]) => {
     setRecentlySwappedIds(fixtureIds);
@@ -215,77 +521,321 @@ const Schedule = () => {
     }, 2500);
   };
 
+  React.useEffect(() => {
+    if (!hasCapturedGroupTimingRef.current) {
+      hasCapturedGroupTimingRef.current = true;
+      previousGroupTimingRef.current = groupTimingSnapshot;
+      return;
+    }
+
+    const previousSnapshot = previousGroupTimingRef.current;
+    const changedGroups: Array<{
+      competitionId: string;
+      groupId: string;
+      duration: number;
+      durationChanged: boolean;
+    }> = [];
+
+    groupTimingSnapshot.forEach((nextTiming, key) => {
+      const previousTiming = previousSnapshot.get(key);
+      if (!previousTiming) return;
+
+      const durationChanged = previousTiming.duration !== nextTiming.duration;
+      const slackChanged = previousTiming.slack !== nextTiming.slack;
+
+      if (!durationChanged && !slackChanged) return;
+
+      const [competitionId, groupId] = key.split(':');
+      changedGroups.push({
+        competitionId,
+        groupId,
+        duration: nextTiming.duration,
+        durationChanged,
+      });
+    });
+
+    previousGroupTimingRef.current = groupTimingSnapshot;
+
+    if (changedGroups.length === 0) return;
+
+    const changedGroupByKey = new Map(
+      changedGroups.map((item) => [`${item.competitionId}:${item.groupId}`, item] as const)
+    );
+    const durationUpdatesByFixtureId = new Map<string, FixtureBatchUpdate>();
+    const affectedPitchIds = new Set<string>();
+
+    competitions.forEach((competition) => {
+      competition.fixtures.forEach((fixture) => {
+        if (!fixture.groupId) return;
+
+        const changedGroup = changedGroupByKey.get(`${competition.id}:${fixture.groupId}`);
+        if (!changedGroup) return;
+
+        if (changedGroup.durationChanged && fixture.duration !== changedGroup.duration) {
+          durationUpdatesByFixtureId.set(fixture.id, {
+            competitionId: competition.id,
+            fixtureId: fixture.id,
+            updates: { duration: changedGroup.duration },
+          });
+        }
+
+        if (fixture.pitchId) {
+          affectedPitchIds.add(fixture.pitchId);
+        }
+      });
+    });
+
+    const fixtureDurationUpdateMap = new Map<string, Partial<Fixture>>(
+      Array.from(durationUpdatesByFixtureId.entries()).map(([fixtureId, update]) => [fixtureId, update.updates])
+    );
+
+    const mergedFixtureUpdatesByFixtureId = new Map<string, FixtureBatchUpdate>(durationUpdatesByFixtureId);
+    const mergedBreakUpdatesByBreakId = new Map<string, BreakBatchUpdate>();
+
+    affectedPitchIds.forEach((pitchId) => {
+      const pitchTimeline = listPitchTimeline(pitchId, fixtureDurationUpdateMap);
+      const reflowUpdates = buildPitchTimelineUpdates(pitchId, pitchTimeline);
+
+      reflowUpdates.fixtureUpdates.forEach((update) => {
+        const existing = mergedFixtureUpdatesByFixtureId.get(update.fixtureId);
+        mergedFixtureUpdatesByFixtureId.set(update.fixtureId, {
+          competitionId: update.competitionId,
+          fixtureId: update.fixtureId,
+          updates: {
+            ...(existing?.updates || {}),
+            ...update.updates,
+          },
+        });
+      });
+
+      reflowUpdates.breakUpdates.forEach((update) => {
+        const existing = mergedBreakUpdatesByBreakId.get(update.breakId);
+        mergedBreakUpdatesByBreakId.set(update.breakId, {
+          breakId: update.breakId,
+          updates: {
+            ...(existing?.updates || {}),
+            ...update.updates,
+          },
+        });
+      });
+    });
+
+    const currentFixtureById = new Map<string, Fixture>();
+    competitions.forEach((competition) => {
+      competition.fixtures.forEach((fixture) => {
+        currentFixtureById.set(fixture.id, fixture);
+      });
+    });
+
+    const fixtureUpdates = Array.from(mergedFixtureUpdatesByFixtureId.values()).filter((update) => {
+      const current = currentFixtureById.get(update.fixtureId);
+      if (!current) return true;
+
+      const hasStartUpdate = Object.prototype.hasOwnProperty.call(update.updates, 'startTime');
+      const hasDurationUpdate = Object.prototype.hasOwnProperty.call(update.updates, 'duration');
+      const startChanged = hasStartUpdate && current.startTime !== update.updates.startTime;
+      const durationChanged = hasDurationUpdate && current.duration !== update.updates.duration;
+
+      return startChanged || durationChanged;
+    });
+
+    const currentBreakById = new Map(pitchBreaks.map((pitchBreak) => [pitchBreak.id, pitchBreak]));
+    const breakUpdates = Array.from(mergedBreakUpdatesByBreakId.values()).filter((update) => {
+      const current = currentBreakById.get(update.breakId);
+      if (!current) return false;
+
+      const hasPitchUpdate = Object.prototype.hasOwnProperty.call(update.updates, 'pitchId');
+      const hasStartUpdate = Object.prototype.hasOwnProperty.call(update.updates, 'startTime');
+      const pitchChanged = hasPitchUpdate && current.pitchId !== update.updates.pitchId;
+      const startChanged = hasStartUpdate && current.startTime !== update.updates.startTime;
+
+      return pitchChanged || startChanged;
+    });
+
+    if (fixtureUpdates.length === 0 && breakUpdates.length === 0) return;
+
+    if (fixtureUpdates.length > 0) {
+      batchUpdateFixtures(fixtureUpdates);
+    }
+
+    if (breakUpdates.length > 0) {
+      const breakUpdateMap = new Map(breakUpdates.map((update) => [update.breakId, update.updates]));
+      setPitchBreaks((current) =>
+        current.map((pitchBreak) =>
+          breakUpdateMap.has(pitchBreak.id) ? { ...pitchBreak, ...breakUpdateMap.get(pitchBreak.id) } : pitchBreak
+        )
+      );
+    }
+  }, [batchUpdateFixtures, competitions, groupTimingSnapshot, pitchBreaks]);
+
   const listPitchFixtures = (pitchId: string, updateMap?: Map<string, Partial<Fixture>>): PitchFixtureItem[] => {
     return competitions
-      .flatMap(comp => comp.fixtures.map(fixture => {
-        const effectiveFixture = updateMap?.has(fixture.id)
-          ? { ...fixture, ...updateMap.get(fixture.id) }
-          : fixture;
+      .flatMap((comp) =>
+        comp.fixtures.map((fixture) => {
+          const effectiveFixture = updateMap?.has(fixture.id)
+            ? { ...fixture, ...updateMap.get(fixture.id) }
+            : fixture;
 
-        return {
-          competitionId: comp.id,
-          groups: comp.groups || [],
-          fixture: effectiveFixture,
-        };
-      }))
-      .filter(item => item.fixture.pitchId === pitchId)
+          return {
+            competitionId: comp.id,
+            groups: comp.groups || [],
+            fixture: effectiveFixture,
+          };
+        })
+      )
+      .filter((item) => item.fixture.pitchId === pitchId)
       .sort((a, b) => {
-        const aStart = minutesFromMidnight(a.fixture.startTime || '10:00');
-        const bStart = minutesFromMidnight(b.fixture.startTime || '10:00');
-        return aStart - bStart;
+        const aStart = minutesFromMidnight(a.fixture.startTime || DEFAULT_ASSIGN_TIME);
+        const bStart = minutesFromMidnight(b.fixture.startTime || DEFAULT_ASSIGN_TIME);
+        if (aStart !== bStart) return aStart - bStart;
+        return a.fixture.id.localeCompare(b.fixture.id);
       });
+  };
+
+  const listPitchBreaks = (
+    pitchId: string,
+    updateMap?: Map<string, Partial<PitchBreakItem>>
+  ): PitchBreakItem[] => {
+    return pitchBreaks
+      .filter((pitchBreak) => pitchBreak.pitchId === pitchId)
+      .map((pitchBreak) =>
+        updateMap?.has(pitchBreak.id) ? { ...pitchBreak, ...updateMap.get(pitchBreak.id) } : pitchBreak
+      )
+      .sort((a, b) => {
+        const aStart = minutesFromMidnight(a.startTime || DEFAULT_ASSIGN_TIME);
+        const bStart = minutesFromMidnight(b.startTime || DEFAULT_ASSIGN_TIME);
+        if (aStart !== bStart) return aStart - bStart;
+        return a.id.localeCompare(b.id);
+      });
+  };
+
+  const listPitchTimeline = (
+    pitchId: string,
+    fixtureUpdateMap?: Map<string, Partial<Fixture>>,
+    breakUpdateMap?: Map<string, Partial<PitchBreakItem>>
+  ): PitchTimelineItem[] => {
+    const fixtureItems: PitchTimelineItem[] = listPitchFixtures(pitchId, fixtureUpdateMap).map((item) => ({
+      kind: 'fixture',
+      item,
+    }));
+    const breakItems: PitchTimelineItem[] = listPitchBreaks(pitchId, breakUpdateMap).map((item) => ({
+      kind: 'break',
+      item,
+    }));
+
+    return [...fixtureItems, ...breakItems].sort((a, b) => {
+      const aStart =
+        a.kind === 'fixture'
+          ? minutesFromMidnight(a.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
+          : minutesFromMidnight(a.item.startTime || DEFAULT_ASSIGN_TIME);
+      const bStart =
+        b.kind === 'fixture'
+          ? minutesFromMidnight(b.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
+          : minutesFromMidnight(b.item.startTime || DEFAULT_ASSIGN_TIME);
+
+      if (aStart !== bStart) return aStart - bStart;
+      if (a.kind !== b.kind) return a.kind === 'fixture' ? -1 : 1;
+
+      const aId = a.kind === 'fixture' ? a.item.fixture.id : a.item.id;
+      const bId = b.kind === 'fixture' ? b.item.fixture.id : b.item.id;
+      return aId.localeCompare(bId);
+    });
   };
 
   const findFixtureContext = (fixtureId: string) => {
     for (const comp of competitions) {
-      const fixture = comp.fixtures.find(f => f.id === fixtureId);
+      const fixture = comp.fixtures.find((f) => f.id === fixtureId);
       if (fixture) {
         return {
           competitionId: comp.id,
           groups: comp.groups || [],
-          fixture
+          fixture,
         };
       }
     }
     return null;
   };
 
-  const getBlockMinutes = (fixture: Fixture, groups: Group[]) => {
-    const duration = fixture.duration || 20;
+  const getFixtureBlockMinutes = (fixture: Fixture, groups: Group[]) => {
+    const duration = fixture.duration || DEFAULT_GROUP_DURATION;
     const slack = getFixtureSlack(fixture, groups);
     return duration + slack;
   };
 
-  const buildPitchTimelineUpdates = (
-    pitchId: string,
-    ordered: PitchFixtureItem[]
-  ) => {
-    const pitchStart = pitches.find(p => p.id === pitchId)?.startTime || '10:00';
-    let cursor = minutesFromMidnight(pitchStart);
+  const getTimelineBlockMinutes = (timelineItem: PitchTimelineItem) => {
+    if (timelineItem.kind === 'break') {
+      return Math.max(MIN_BREAK_DURATION, timelineItem.item.duration || DEFAULT_BREAK_DURATION);
+    }
 
-    return ordered.map(item => {
-      const startTime = timeFromMinutes(cursor);
-      cursor += getBlockMinutes(item.fixture, item.groups);
-
-      return {
-        competitionId: item.competitionId,
-        fixtureId: item.fixture.id,
-        updates: { pitchId, startTime }
-      };
-    });
+    return getFixtureBlockMinutes(timelineItem.item.fixture, timelineItem.item.groups);
   };
 
-  const computeInsertUpdates = (sourceFixtureId: string, targetPitchId: string, targetIndex: number): FixtureBatchUpdate[] => {
+  const buildPitchTimelineUpdates = (
+    pitchId: string,
+    ordered: PitchTimelineItem[]
+  ): { fixtureUpdates: FixtureBatchUpdate[]; breakUpdates: BreakBatchUpdate[] } => {
+    const pitchStart = effectivePitchById.get(pitchId)?.startTime || DEFAULT_ASSIGN_TIME;
+    let cursor = minutesFromMidnight(pitchStart);
+    const fixtureUpdates: FixtureBatchUpdate[] = [];
+    const breakUpdates: BreakBatchUpdate[] = [];
+
+    ordered.forEach((timelineItem) => {
+      const startTime = timeFromMinutes(cursor);
+      cursor += getTimelineBlockMinutes(timelineItem);
+
+      if (timelineItem.kind === 'fixture') {
+        fixtureUpdates.push({
+          competitionId: timelineItem.item.competitionId,
+          fixtureId: timelineItem.item.fixture.id,
+          updates: { pitchId, startTime },
+        });
+      } else {
+        breakUpdates.push({
+          breakId: timelineItem.item.id,
+          updates: { pitchId, startTime },
+        });
+      }
+    });
+
+    return {
+      fixtureUpdates,
+      breakUpdates,
+    };
+  };
+
+  const applyPitchTimelineUpdates = (updates: { fixtureUpdates: FixtureBatchUpdate[]; breakUpdates: BreakBatchUpdate[] }) => {
+    if (updates.fixtureUpdates.length > 0) {
+      batchUpdateFixtures(updates.fixtureUpdates);
+    }
+
+    if (updates.breakUpdates.length > 0) {
+      const breakUpdateMap = new Map(updates.breakUpdates.map((update) => [update.breakId, update.updates]));
+      setPitchBreaks((current) =>
+        current.map((pitchBreak) =>
+          breakUpdateMap.has(pitchBreak.id) ? { ...pitchBreak, ...breakUpdateMap.get(pitchBreak.id) } : pitchBreak
+        )
+      );
+    }
+  };
+
+  const computeInsertUpdates = (
+    sourceFixtureId: string,
+    targetPitchId: string,
+    targetIndex: number
+  ): { fixtureUpdates: FixtureBatchUpdate[]; breakUpdates: BreakBatchUpdate[] } => {
     const source = findFixtureContext(sourceFixtureId);
-    if (!source) return [];
+    if (!source) return { fixtureUpdates: [], breakUpdates: [] };
 
     const sourcePitchId = source.fixture.pitchId;
+    const sourceTimelineItem: PitchTimelineItem = { kind: 'fixture', item: source };
     const clampedTargetIndex = Math.max(0, targetIndex);
 
     if (sourcePitchId && sourcePitchId === targetPitchId) {
-      const samePitchList = listPitchFixtures(sourcePitchId);
-      const sourceIndex = samePitchList.findIndex(item => item.fixture.id === sourceFixtureId);
-      if (sourceIndex < 0) return [];
+      const samePitchList = listPitchTimeline(sourcePitchId);
+      const sourceIndex = samePitchList.findIndex(
+        (timelineItem) => timelineItem.kind === 'fixture' && timelineItem.item.fixture.id === sourceFixtureId
+      );
+      if (sourceIndex < 0) return { fixtureUpdates: [], breakUpdates: [] };
 
       samePitchList.splice(sourceIndex, 1);
 
@@ -295,42 +845,45 @@ const Schedule = () => {
       }
       insertIndex = Math.max(0, Math.min(insertIndex, samePitchList.length));
 
-      if (insertIndex === sourceIndex) return [];
+      if (insertIndex === sourceIndex) return { fixtureUpdates: [], breakUpdates: [] };
 
-      samePitchList.splice(insertIndex, 0, source);
+      samePitchList.splice(insertIndex, 0, sourceTimelineItem);
       return buildPitchTimelineUpdates(targetPitchId, samePitchList);
     }
 
-    const targetList = listPitchFixtures(targetPitchId);
+    const targetList = listPitchTimeline(targetPitchId);
     const insertIndex = Math.max(0, Math.min(clampedTargetIndex, targetList.length));
-    targetList.splice(insertIndex, 0, source);
+    targetList.splice(insertIndex, 0, sourceTimelineItem);
 
     if (sourcePitchId) {
-      const sourceList = listPitchFixtures(sourcePitchId).filter(item => item.fixture.id !== sourceFixtureId);
-      return [
-        ...buildPitchTimelineUpdates(sourcePitchId, sourceList),
-        ...buildPitchTimelineUpdates(targetPitchId, targetList),
-      ];
+      const sourceList = listPitchTimeline(sourcePitchId).filter(
+        (timelineItem) => !(timelineItem.kind === 'fixture' && timelineItem.item.fixture.id === sourceFixtureId)
+      );
+      const sourceUpdates = buildPitchTimelineUpdates(sourcePitchId, sourceList);
+      const targetUpdates = buildPitchTimelineUpdates(targetPitchId, targetList);
+
+      return {
+        fixtureUpdates: [...sourceUpdates.fixtureUpdates, ...targetUpdates.fixtureUpdates],
+        breakUpdates: [...sourceUpdates.breakUpdates, ...targetUpdates.breakUpdates],
+      };
     }
 
     return buildPitchTimelineUpdates(targetPitchId, targetList);
   };
 
-  const applyBatchUpdates = (updates: FixtureBatchUpdate[]) => {
-    if (updates.length > 0) {
-      batchUpdateFixtures(updates);
-    }
-  };
-
   const insertPreviewUpdates =
     draggingFixtureId && insertTarget
       ? computeInsertUpdates(draggingFixtureId, insertTarget.pitchId, insertTarget.index)
-      : [];
+      : { fixtureUpdates: [], breakUpdates: [] };
 
   const insertPreviewMap = new Map<string, Partial<Fixture>>(
-    insertPreviewUpdates
-      .filter(update => update.fixtureId !== draggingFixtureId)
-      .map(update => [update.fixtureId, update.updates])
+    insertPreviewUpdates.fixtureUpdates
+      .filter((update) => update.fixtureId !== draggingFixtureId)
+      .map((update) => [update.fixtureId, update.updates])
+  );
+
+  const insertPreviewBreakMap = new Map<string, Partial<PitchBreakItem>>(
+    insertPreviewUpdates.breakUpdates.map((update) => [update.breakId, update.updates])
   );
 
   const getEffectiveFixture = (fixture: Fixture) => {
@@ -340,7 +893,7 @@ const Schedule = () => {
 
   const draggingFixtureContext = draggingFixtureId ? findFixtureContext(draggingFixtureId) : null;
   const draggingBlockHeight = draggingFixtureContext
-    ? getBlockMinutes(draggingFixtureContext.fixture, draggingFixtureContext.groups) * PIXELS_PER_MINUTE
+    ? getFixtureBlockMinutes(draggingFixtureContext.fixture, draggingFixtureContext.groups) * PIXELS_PER_MINUTE
     : 0;
 
   const swapFixtures = (sourceFixtureId: string, targetFixtureId: string) => {
@@ -355,63 +908,82 @@ const Schedule = () => {
 
     if (!targetPitchId) return;
 
+    const sourceTimelineItem: PitchTimelineItem = { kind: 'fixture', item: source };
+    const targetTimelineItem: PitchTimelineItem = { kind: 'fixture', item: target };
+
     // Both fixtures are on the same pitch: swap order and reflow that pitch timeline.
     if (sourcePitchId && sourcePitchId === targetPitchId) {
-      const list = listPitchFixtures(sourcePitchId);
-      const sourceIndex = list.findIndex(item => item.fixture.id === sourceFixtureId);
-      const targetIndex = list.findIndex(item => item.fixture.id === targetFixtureId);
+      const timeline = listPitchTimeline(sourcePitchId);
+      const sourceIndex = timeline.findIndex(
+        (timelineItem) => timelineItem.kind === 'fixture' && timelineItem.item.fixture.id === sourceFixtureId
+      );
+      const targetIndex = timeline.findIndex(
+        (timelineItem) => timelineItem.kind === 'fixture' && timelineItem.item.fixture.id === targetFixtureId
+      );
       if (sourceIndex < 0 || targetIndex < 0) return;
 
-      [list[sourceIndex], list[targetIndex]] = [list[targetIndex], list[sourceIndex]];
-      const updates = buildPitchTimelineUpdates(sourcePitchId, list);
-      batchUpdateFixtures(updates);
-      showChangeFeedback(getActuallyChangedFixtureIds(updates), sourceFixtureId);
+      [timeline[sourceIndex], timeline[targetIndex]] = [timeline[targetIndex], timeline[sourceIndex]];
+      const updates = buildPitchTimelineUpdates(sourcePitchId, timeline);
+      applyPitchTimelineUpdates(updates);
+      showChangeFeedback(getActuallyChangedFixtureIds(updates.fixtureUpdates), sourceFixtureId);
       showSwapFeedback([sourceFixtureId, targetFixtureId]);
       return;
     }
 
     // Fixtures are on different pitches: swap slot positions and reflow both affected pitch timelines.
     if (sourcePitchId) {
-      const sourceList = listPitchFixtures(sourcePitchId);
-      const targetList = listPitchFixtures(targetPitchId);
+      const sourceList = listPitchTimeline(sourcePitchId);
+      const targetList = listPitchTimeline(targetPitchId);
 
-      const sourceIndex = sourceList.findIndex(item => item.fixture.id === sourceFixtureId);
-      const targetIndex = targetList.findIndex(item => item.fixture.id === targetFixtureId);
+      const sourceIndex = sourceList.findIndex(
+        (timelineItem) => timelineItem.kind === 'fixture' && timelineItem.item.fixture.id === sourceFixtureId
+      );
+      const targetIndex = targetList.findIndex(
+        (timelineItem) => timelineItem.kind === 'fixture' && timelineItem.item.fixture.id === targetFixtureId
+      );
       if (sourceIndex < 0 || targetIndex < 0) return;
 
       sourceList.splice(sourceIndex, 1);
       targetList.splice(targetIndex, 1);
 
-      sourceList.splice(sourceIndex, 0, target);
-      targetList.splice(targetIndex, 0, source);
+      sourceList.splice(sourceIndex, 0, targetTimelineItem);
+      targetList.splice(targetIndex, 0, sourceTimelineItem);
 
-      const updates = [
-        ...buildPitchTimelineUpdates(sourcePitchId, sourceList),
-        ...buildPitchTimelineUpdates(targetPitchId, targetList)
-      ];
-      batchUpdateFixtures(updates);
-      showChangeFeedback(getActuallyChangedFixtureIds(updates), sourceFixtureId);
+      const sourceUpdates = buildPitchTimelineUpdates(sourcePitchId, sourceList);
+      const targetUpdates = buildPitchTimelineUpdates(targetPitchId, targetList);
+      const updates = {
+        fixtureUpdates: [...sourceUpdates.fixtureUpdates, ...targetUpdates.fixtureUpdates],
+        breakUpdates: [...sourceUpdates.breakUpdates, ...targetUpdates.breakUpdates],
+      };
+      applyPitchTimelineUpdates(updates);
+      showChangeFeedback(getActuallyChangedFixtureIds(updates.fixtureUpdates), sourceFixtureId);
       showSwapFeedback([sourceFixtureId, targetFixtureId]);
       return;
     }
 
     // Source is unassigned: replace target slot with source and unassign the target fixture.
-    const targetList = listPitchFixtures(targetPitchId);
-    const targetIndex = targetList.findIndex(item => item.fixture.id === targetFixtureId);
+    const targetList = listPitchTimeline(targetPitchId);
+    const targetIndex = targetList.findIndex(
+      (timelineItem) => timelineItem.kind === 'fixture' && timelineItem.item.fixture.id === targetFixtureId
+    );
     if (targetIndex < 0) return;
 
-    targetList.splice(targetIndex, 1, source);
+    targetList.splice(targetIndex, 1, sourceTimelineItem);
+    const reflowUpdates = buildPitchTimelineUpdates(targetPitchId, targetList);
+    const updates = {
+      fixtureUpdates: [
+        ...reflowUpdates.fixtureUpdates,
+        {
+          competitionId: target.competitionId,
+          fixtureId: target.fixture.id,
+          updates: { pitchId: undefined, startTime: undefined },
+        },
+      ],
+      breakUpdates: reflowUpdates.breakUpdates,
+    };
 
-    const updates = [
-      ...buildPitchTimelineUpdates(targetPitchId, targetList),
-      {
-        competitionId: target.competitionId,
-        fixtureId: target.fixture.id,
-        updates: { pitchId: undefined, startTime: undefined }
-      }
-    ];
-    batchUpdateFixtures(updates);
-    showChangeFeedback(getActuallyChangedFixtureIds(updates), sourceFixtureId);
+    applyPitchTimelineUpdates(updates);
+    showChangeFeedback(getActuallyChangedFixtureIds(updates.fixtureUpdates), sourceFixtureId);
   };
 
   const onDropFixture = (e: React.DragEvent, targetFixtureId: string) => {
@@ -431,8 +1003,8 @@ const Schedule = () => {
     if (!fixtureId) return;
 
     const updates = computeInsertUpdates(fixtureId, pitchId, index);
-    applyBatchUpdates(updates);
-    showChangeFeedback(getActuallyChangedFixtureIds(updates), fixtureId);
+    applyPitchTimelineUpdates(updates);
+    showChangeFeedback(getActuallyChangedFixtureIds(updates.fixtureUpdates), fixtureId);
     clearDragState();
   };
 
@@ -444,6 +1016,116 @@ const Schedule = () => {
       clearDragState();
     }
   };
+
+  const handleAddBreak = (pitchId: string) => {
+    const pitchStart = effectivePitchById.get(pitchId)?.startTime || DEFAULT_ASSIGN_TIME;
+    const timeline = listPitchTimeline(pitchId);
+    const lastTimelineItem = timeline[timeline.length - 1];
+    const startMinutes = lastTimelineItem
+      ? (lastTimelineItem.kind === 'fixture'
+          ? minutesFromMidnight(lastTimelineItem.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
+          : minutesFromMidnight(lastTimelineItem.item.startTime || DEFAULT_ASSIGN_TIME)) + getTimelineBlockMinutes(lastTimelineItem)
+      : minutesFromMidnight(pitchStart);
+
+    const nextBreak: PitchBreakItem = {
+      id: uuidv4(),
+      pitchId,
+      startTime: timeFromMinutes(startMinutes),
+      duration: DEFAULT_BREAK_DURATION,
+      label: 'Break',
+    };
+
+    const nextTimeline = [...timeline, { kind: 'break' as const, item: nextBreak }];
+    setPitchBreaks((current) => [...current, nextBreak]);
+    const updates = buildPitchTimelineUpdates(pitchId, nextTimeline);
+    applyPitchTimelineUpdates(updates);
+    showChangeFeedback(getActuallyChangedFixtureIds(updates.fixtureUpdates));
+  };
+
+  const handleDeleteBreak = (pitchId: string, breakId: string) => {
+    const nextTimeline = listPitchTimeline(pitchId).filter(
+      (timelineItem) => !(timelineItem.kind === 'break' && timelineItem.item.id === breakId)
+    );
+
+    setPitchBreaks((current) => current.filter((pitchBreak) => pitchBreak.id !== breakId));
+    const updates = buildPitchTimelineUpdates(pitchId, nextTimeline);
+    applyPitchTimelineUpdates(updates);
+    showChangeFeedback(getActuallyChangedFixtureIds(updates.fixtureUpdates));
+  };
+
+  const updateBreakLabel = (breakId: string, label: string) => {
+    setPitchBreaks((current) =>
+      current.map((pitchBreak) => (pitchBreak.id === breakId ? { ...pitchBreak, label } : pitchBreak))
+    );
+  };
+
+  const commitBreakLabel = (breakId: string) => {
+    setPitchBreaks((current) =>
+      current.map((pitchBreak) => {
+        if (pitchBreak.id !== breakId) return pitchBreak;
+        const nextLabel = pitchBreak.label.trim() || 'Break';
+        return nextLabel === pitchBreak.label ? pitchBreak : { ...pitchBreak, label: nextLabel };
+      })
+    );
+  };
+
+  const onBreakResizeMouseDown = (event: React.MouseEvent, pitchBreak: PitchBreakItem) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDraggingBreakResize({
+      breakId: pitchBreak.id,
+      pitchId: pitchBreak.pitchId,
+      startClientY: event.clientY,
+      initialDuration: pitchBreak.duration,
+    });
+  };
+
+  React.useEffect(() => {
+    if (!draggingBreakResize) return;
+
+    const onMouseMove = (event: MouseEvent) => {
+      const deltaPixels = event.clientY - draggingBreakResize.startClientY;
+      const deltaMinutesRaw = deltaPixels / PIXELS_PER_MINUTE;
+      const deltaMinutesSnapped =
+        Math.round(deltaMinutesRaw / DRAG_SNAP_MINUTES) * DRAG_SNAP_MINUTES;
+      const nextDuration = Math.max(
+        MIN_BREAK_DURATION,
+        draggingBreakResize.initialDuration + deltaMinutesSnapped
+      );
+
+      setPitchBreaks((current) =>
+        current.map((pitchBreak) =>
+          pitchBreak.id === draggingBreakResize.breakId && pitchBreak.duration !== nextDuration
+            ? { ...pitchBreak, duration: nextDuration }
+            : pitchBreak
+        )
+      );
+    };
+
+    const onMouseUp = () => {
+      const pitchId = draggingBreakResize.pitchId;
+      setDraggingBreakResize(null);
+
+      const updates = buildPitchTimelineUpdates(pitchId, listPitchTimeline(pitchId));
+      applyPitchTimelineUpdates(updates);
+      showChangeFeedback(getActuallyChangedFixtureIds(updates.fixtureUpdates));
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [
+    draggingBreakResize,
+    applyPitchTimelineUpdates,
+    buildPitchTimelineUpdates,
+    getActuallyChangedFixtureIds,
+    listPitchTimeline,
+    showChangeFeedback,
+  ]);
 
   // Data Preparation
   const allFixtures = competitions.flatMap(comp =>
@@ -473,62 +1155,20 @@ const Schedule = () => {
           </Button>
           <h1 className="text-2xl font-bold">Global Schedule</h1>
         </div>
-        <Button onClick={handleAutoSchedule} variant="secondary" size="sm">
-          <Clock className="mr-2 h-4 w-4" /> Auto Schedule All
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={handleAddPitch} variant="outline" size="sm">
+            <Plus className="mr-2 h-4 w-4" /> Add Pitch
+          </Button>
+          <Button onClick={handleAutoSchedule} variant="secondary" size="sm">
+            <Clock className="mr-2 h-4 w-4" /> Auto Schedule All
+          </Button>
+        </div>
       </div>
 
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Sidebar */}
         <div className="w-80 flex-none flex flex-col gap-4 min-h-0 overflow-y-auto">
           <Accordion type="single" collapsible className="w-full" defaultValue="unassigned">
-            <AccordionItem value="pitches">
-              <AccordionTrigger>Manage Pitches</AccordionTrigger>
-              <AccordionContent>
-                <Card>
-                  <CardContent className="pt-4">
-                    <div className="flex flex-col gap-2 mb-4">
-                      <Input
-                        placeholder="Pitch Name"
-                        value={newPitchName}
-                        onChange={(e) => setNewPitchName(e.target.value)}
-                      />
-                      <div className="flex gap-2">
-                        <Input
-                          type="time"
-                          value={pitchStart}
-                          onChange={(e) => setPitchStart(e.target.value)}
-                          className="text-xs"
-                        />
-                        <span className="self-center">-</span>
-                        <Input
-                          type="time"
-                          value={pitchEnd}
-                          onChange={(e) => setPitchEnd(e.target.value)}
-                          className="text-xs"
-                        />
-                      </div>
-                      <Button className="w-full" onClick={handleAddPitch}>
-                        <Plus className="mr-2 h-4 w-4" /> Add Pitch
-                      </Button>
-                    </div>
-                    <div className="space-y-2">
-                      {pitches.map(pitch => (
-                        <div key={pitch.id} className="flex flex-col p-2 bg-slate-100 rounded gap-1">
-                          <div className="flex justify-between items-center">
-                            <span className="font-medium">{pitch.name}</span>
-                            <Button variant="ghost" size="icon" onClick={() => deletePitch(pitch.id)}>
-                              <X className="h-4 w-4 text-muted-foreground" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              </AccordionContent>
-            </AccordionItem>
-
             <AccordionItem value="groups">
               <AccordionTrigger>Group Settings</AccordionTrigger>
               <AccordionContent>
@@ -565,13 +1205,19 @@ const Schedule = () => {
                             <span className="truncate">{away?.name || 'Bye'}</span>
                           </div>
                           <div className="mt-2 flex gap-1">
-                            <Select onValueChange={(val) => handleAssign(fixture.competitionId, fixture.id, val, startTime)}>
+                            <Select
+                              onValueChange={(val) =>
+                                handleAssign(fixture.competitionId, fixture.id, val, DEFAULT_ASSIGN_TIME)
+                              }
+                            >
                               <SelectTrigger className="h-6 text-[10px] w-full">
                                 <SelectValue placeholder="Assign" />
                               </SelectTrigger>
                               <SelectContent>
-                                {pitches.map(p => (
-                                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                {effectivePitches.map(pitch => (
+                                  <SelectItem key={pitch.id} value={pitch.id}>
+                                    {pitch.name}
+                                  </SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
@@ -591,15 +1237,50 @@ const Schedule = () => {
           {/* Header */}
           <div className="flex border-b bg-slate-50 sticky top-0 z-20">
             <div className="w-16 flex-none border-r p-2 text-xs font-semibold text-center text-muted-foreground">Time</div>
-            {pitches.map(pitch => (
-              <div key={pitch.id} className="flex-1 border-r last:border-r-0 p-2 text-sm font-bold text-center truncate">
-                {pitch.name}
+            {effectivePitches.map(pitch => (
+              <div key={pitch.id} className="flex-1 border-r last:border-r-0 p-2">
+                <div className="flex items-center gap-1">
+                  <Input
+                    value={pitch.name}
+                    onChange={(event) => updatePitchDraftField(pitch.id, 'name', event.target.value)}
+                    onBlur={() => commitPitchDraft(pitch.id, ['name'])}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        (event.target as HTMLInputElement).blur();
+                      }
+                    }}
+                    className="h-7 text-xs font-semibold"
+                    aria-label={`Pitch name ${pitch.name}`}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[10px] shrink-0"
+                    onClick={() => handleAddBreak(pitch.id)}
+                    title={`Add break to ${pitch.name}`}
+                  >
+                    <Plus className="mr-1 h-3 w-3" /> Break
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0"
+                    onClick={() => handleDeletePitch(pitch.id)}
+                    title="Delete pitch"
+                  >
+                    <X className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-1">
+                  Drag boundaries to resize: {pitch.startTime} - {pitch.endTime}
+                </div>
               </div>
             ))}
           </div>
 
           {/* Scrollable Grid */}
-          <div className="flex-1 overflow-y-auto relative bg-slate-50/30">
+          <div ref={gridScrollRef} className="flex-1 overflow-y-auto relative bg-slate-50/30">
             <div className="flex relative" style={{ height: gridHeight }}>
 
               {/* Time Axis */}
@@ -616,25 +1297,32 @@ const Schedule = () => {
               </div>
 
               {/* Pitch Columns */}
-              {pitches.map(pitch => {
-                const pitchFixtures = listPitchFixtures(pitch.id);
-                const pitchFixturesForRender = listPitchFixtures(pitch.id, insertPreviewMap);
+              {effectivePitches.map(pitch => {
+                const pitchTimeline = listPitchTimeline(pitch.id);
+                const pitchTimelineForRender = listPitchTimeline(pitch.id, insertPreviewMap, insertPreviewBreakMap);
                 const viewStartMins = VIEW_START_HOUR * 60;
-                const pitchStartMins = minutesFromMidnight(pitch.startTime || '10:00');
-                const insertionSlots = Array.from({ length: pitchFixtures.length + 1 }, (_, index) => {
+                const pitchStartMins = minutesFromMidnight(pitch.startTime || DEFAULT_ASSIGN_TIME);
+                const insertionSlots = Array.from({ length: pitchTimeline.length + 1 }, (_, index) => {
                   let top = (pitchStartMins - viewStartMins) * PIXELS_PER_MINUTE;
 
-                  if (index > 0 && index < pitchFixtures.length) {
-                    const next = pitchFixtures[index];
-                    top = (minutesFromMidnight(next.fixture.startTime || '10:00') - viewStartMins) * PIXELS_PER_MINUTE;
+                  if (index > 0 && index < pitchTimeline.length) {
+                    const next = pitchTimeline[index];
+                    const nextStartMins =
+                      next.kind === 'fixture'
+                        ? minutesFromMidnight(next.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
+                        : minutesFromMidnight(next.item.startTime || DEFAULT_ASSIGN_TIME);
+                    top = (nextStartMins - viewStartMins) * PIXELS_PER_MINUTE;
                   }
 
-                  if (index === pitchFixtures.length && pitchFixtures.length > 0) {
-                    const previous = pitchFixtures[index - 1];
-                    const previousStart = minutesFromMidnight(previous.fixture.startTime || '10:00');
+                  if (index === pitchTimeline.length && pitchTimeline.length > 0) {
+                    const previous = pitchTimeline[index - 1];
+                    const previousStart =
+                      previous.kind === 'fixture'
+                        ? minutesFromMidnight(previous.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
+                        : minutesFromMidnight(previous.item.startTime || DEFAULT_ASSIGN_TIME);
                     top = (
                       (previousStart - viewStartMins) +
-                      getBlockMinutes(previous.fixture, previous.groups)
+                      getTimelineBlockMinutes(previous)
                     ) * PIXELS_PER_MINUTE;
                   }
 
@@ -643,6 +1331,10 @@ const Schedule = () => {
                     top: Math.max(0, Math.min(gridHeight, top))
                   };
                 });
+
+                const pitchStartTop = Math.max(0, Math.min(gridHeight, (pitchStartMins - viewStartMins) * PIXELS_PER_MINUTE));
+                const pitchEndMins = minutesFromMidnight(pitch.endTime || DEFAULT_PITCH_END);
+                const pitchEndTop = Math.max(0, Math.min(gridHeight, (pitchEndMins - viewStartMins) * PIXELS_PER_MINUTE));
 
                 return (
                   <div
@@ -667,8 +1359,8 @@ const Schedule = () => {
                           pitch.id,
                           insertTarget.index
                         );
-                        applyBatchUpdates(updates);
-                        showChangeFeedback(getActuallyChangedFixtureIds(updates), draggingFixtureId);
+                        applyPitchTimelineUpdates(updates);
+                        showChangeFeedback(getActuallyChangedFixtureIds(updates.fixtureUpdates), draggingFixtureId);
                       }
                       clearDragState();
                     }}
@@ -683,12 +1375,9 @@ const Schedule = () => {
                     ))}
 
                     {/* Pitch Constraints (Out of bounds) */}
-                    {/* Assuming pitch.startTime/endTime are set, or default 09:00-18:00 */}
-                    {/* Render red hatch for unavailable times */}
                     {(() => {
-                      const pStart = minutesFromMidnight(pitch.startTime || '09:00');
-                      const pEnd = minutesFromMidnight(pitch.endTime || '18:00');
-                      const viewStartMins = VIEW_START_HOUR * 60;
+                      const pStart = minutesFromMidnight(pitch.startTime || DEFAULT_PITCH_START);
+                      const pEnd = minutesFromMidnight(pitch.endTime || DEFAULT_PITCH_END);
 
                       const topUnavailableHeight = Math.max(0, (pStart - viewStartMins) * PIXELS_PER_MINUTE);
                       const bottomUnavailableStart = Math.max(0, (pEnd - viewStartMins) * PIXELS_PER_MINUTE);
@@ -696,7 +1385,6 @@ const Schedule = () => {
 
                       return (
                         <>
-                          {/* Top unavailable */}
                           {topUnavailableHeight > 0 && (
                             <div
                               className="absolute w-full bg-red-50/50 pointer-events-none"
@@ -707,7 +1395,6 @@ const Schedule = () => {
                               }}
                             />
                           )}
-                          {/* Bottom unavailable */}
                           <div
                             className="absolute w-full bg-red-50/50 pointer-events-none"
                             style={{
@@ -719,6 +1406,35 @@ const Schedule = () => {
                         </>
                       );
                     })()}
+
+                    {/* Draggable Pitch Boundaries */}
+                    <div className="absolute inset-x-0 z-30 pointer-events-none" style={{ top: pitchStartTop }}>
+                      <div className="absolute inset-x-0 border-t-2 border-emerald-500/90" />
+                      <button
+                        type="button"
+                        className="absolute inset-x-2 -top-2 h-4 cursor-row-resize pointer-events-auto"
+                        onMouseDown={(event) => onPitchBoundaryMouseDown(event, pitch.id, 'startTime')}
+                        title="Drag pitch start"
+                      >
+                        <span className="ml-auto block w-fit rounded bg-emerald-600/90 px-1 py-0 text-[9px] font-semibold text-white">
+                          Start {pitch.startTime}
+                        </span>
+                      </button>
+                    </div>
+
+                    <div className="absolute inset-x-0 z-30 pointer-events-none" style={{ top: pitchEndTop }}>
+                      <div className="absolute inset-x-0 border-t-2 border-rose-500/90" />
+                      <button
+                        type="button"
+                        className="absolute inset-x-2 -top-2 h-4 cursor-row-resize pointer-events-auto"
+                        onMouseDown={(event) => onPitchBoundaryMouseDown(event, pitch.id, 'endTime')}
+                        title="Drag pitch end"
+                      >
+                        <span className="ml-auto block w-fit rounded bg-rose-600/90 px-1 py-0 text-[9px] font-semibold text-white">
+                          End {pitch.endTime}
+                        </span>
+                      </button>
+                    </div>
 
                     {/* Insert drop zones (start, between, end) */}
                     {draggingFixtureId && insertionSlots.map(slot => {
@@ -741,8 +1457,8 @@ const Schedule = () => {
                           />
                           <div
                             className={cn(
-                              "absolute inset-x-0 border-t-2 border-dashed pointer-events-none transition-all duration-150",
-                              isActive ? "border-emerald-500 opacity-100" : "border-sky-400/50 opacity-35"
+                              'absolute inset-x-0 border-t-2 border-dashed pointer-events-none transition-all duration-150',
+                              isActive ? 'border-emerald-500 opacity-100' : 'border-sky-400/50 opacity-35'
                             )}
                           />
                           {isActive && (
@@ -764,88 +1480,164 @@ const Schedule = () => {
                       );
                     })}
 
-                    {/* Fixtures */}
-                    {pitchFixturesForRender.map(({ fixture, competitionId, groups }) => {
-                      const comp = competitions.find(c => c.id === competitionId);
-                      const home = comp?.teams.find(t => t.id === fixture.homeTeamId);
-                      const away = comp?.teams.find(t => t.id === fixture.awayTeamId);
+                    {/* Timeline Items */}
+                    {pitchTimelineForRender.map((timelineItem) => {
+                      if (timelineItem.kind === 'fixture') {
+                        const { fixture, competitionId, groups } = timelineItem.item;
+                        const comp = competitions.find((c) => c.id === competitionId);
+                        const home = comp?.teams.find((t) => t.id === fixture.homeTeamId);
+                        const away = comp?.teams.find((t) => t.id === fixture.awayTeamId);
 
-                      const startMins = minutesFromMidnight(fixture.startTime || '10:00');
-                      const duration = fixture.duration || 20;
-                      const slack = getFixtureSlack(fixture, groups);
+                        const startMins = minutesFromMidnight(fixture.startTime || DEFAULT_ASSIGN_TIME);
+                        const duration = fixture.duration || DEFAULT_GROUP_DURATION;
+                        const slack = getFixtureSlack(fixture, groups);
 
+                        const top = (startMins - viewStartMins) * PIXELS_PER_MINUTE;
+                        const heightMatch = duration * PIXELS_PER_MINUTE;
+                        const heightSlack = slack * PIXELS_PER_MINUTE;
+
+                        if (top < 0 && top + heightMatch + heightSlack < 0) return null;
+
+                        return (
+                          <div
+                            key={fixture.id}
+                            draggable
+                            onDragStart={(e) => onDragStart(e, fixture.id)}
+                            onDragEnd={onDragEnd}
+                            onDragOver={(e) => onDragOverFixture(e, fixture.id)}
+                            onDrop={(e) => onDropFixture(e, fixture.id)}
+                            className={cn(
+                              'absolute w-[95%] left-[2.5%] rounded shadow-sm cursor-move text-[10px] overflow-hidden group hover:z-20 transition-all duration-200',
+                              draggingFixtureId === fixture.id && 'opacity-50',
+                              recentlyChangedIds.includes(fixture.id) && 'fixture-change-fade',
+                              recentlyPrimaryChangedId === fixture.id && 'fixture-change-primary',
+                              dropTargetFixtureId === fixture.id && 'ring-2 ring-amber-500 shadow-md scale-[1.01]',
+                              recentlySwappedIds.includes(fixture.id) && 'ring-2 ring-emerald-500'
+                            )}
+                            style={{
+                              top,
+                              height: heightMatch + heightSlack,
+                              borderLeft: `0.6rem solid ${comp?.color || '#1e293b'}`,
+                              borderTop: '1px solid #e2e8f0',
+                              borderRight: '1px solid #e2e8f0',
+                              borderBottom: '1px solid #e2e8f0'
+                            }}
+                            title={`${fixture.startTime} - ${comp?.name} - ${home?.name} vs ${away?.name}`}
+                          >
+                            {dropTargetFixtureId === fixture.id && (
+                              <div className="absolute top-0.5 right-5 rounded bg-amber-500/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
+                                Swap here
+                              </div>
+                            )}
+                            {recentlySwappedIds.includes(fixture.id) && (
+                              <div className="absolute top-0.5 right-5 rounded bg-emerald-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
+                                Swapped
+                              </div>
+                            )}
+                            {recentlyPrimaryChangedId === fixture.id && (
+                              <div className="absolute top-0.5 left-0.5 rounded bg-amber-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
+                                Moved
+                              </div>
+                            )}
+
+                            {/* Match Duration Area */}
+                            <div
+                              className="w-full bg-blue-100 flex flex-col px-1 py-0.5"
+                              style={{ height: heightMatch }}
+                            >
+                              <div className="font-bold truncate text-blue-900">{fixture.startTime}</div>
+                              <div className="truncate font-medium text-blue-800 leading-tight">{home?.name} v {away?.name}</div>
+                            </div>
+
+                            {/* Slack Duration Area */}
+                            <div
+                              className="w-full border-t border-blue-200/50"
+                              style={{
+                                height: heightSlack,
+                                background: 'repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 2px, #e2e8f0 2px, #e2e8f0 4px)'
+                              }}
+                            />
+
+                            {/* Remove Button (Hover only) */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUnassign(fixture.id);
+                              }}
+                              className="absolute top-0.5 right-0.5 w-4 h-4 flex items-center justify-center rounded-full bg-white/50 hover:bg-red-100 text-slate-500 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      const pitchBreak = timelineItem.item;
+                      const duration = Math.max(MIN_BREAK_DURATION, pitchBreak.duration || DEFAULT_BREAK_DURATION);
+                      const startMins = minutesFromMidnight(pitchBreak.startTime || DEFAULT_ASSIGN_TIME);
                       const top = (startMins - viewStartMins) * PIXELS_PER_MINUTE;
-                      const heightMatch = duration * PIXELS_PER_MINUTE;
-                      const heightSlack = slack * PIXELS_PER_MINUTE;
+                      const height = duration * PIXELS_PER_MINUTE;
 
-                      if (top < 0 && top + heightMatch + heightSlack < 0) return null;
+                      if (top < 0 && top + height < 0) return null;
+
+                      const isResizing = draggingBreakResize?.breakId === pitchBreak.id;
 
                       return (
                         <div
-                          key={fixture.id}
-                          draggable
-                          onDragStart={(e) => onDragStart(e, fixture.id)}
-                          onDragEnd={onDragEnd}
-                          onDragOver={(e) => onDragOverFixture(e, fixture.id)}
-                          onDrop={(e) => onDropFixture(e, fixture.id)}
+                          key={pitchBreak.id}
                           className={cn(
-                            "absolute w-[95%] left-[2.5%] rounded border shadow-sm cursor-move text-[10px] overflow-hidden group hover:z-20 transition-all duration-200",
-                            draggingFixtureId === fixture.id && "opacity-50",
-                            recentlyChangedIds.includes(fixture.id) && "fixture-change-fade",
-                            recentlyPrimaryChangedId === fixture.id && "fixture-change-primary",
-                            dropTargetFixtureId === fixture.id && "ring-2 ring-amber-500 shadow-md scale-[1.01]",
-                            recentlySwappedIds.includes(fixture.id) && "ring-2 ring-emerald-500"
+                            'absolute w-[95%] left-[2.5%] rounded border border-slate-700 text-[10px] overflow-hidden shadow-sm',
+                            isResizing && 'ring-2 ring-amber-400'
                           )}
                           style={{
                             top,
-                            height: heightMatch + heightSlack
+                            height,
+                            background: BREAK_PATTERN_DARK,
                           }}
-                          title={`${fixture.startTime} - ${comp?.name} - ${home?.name} vs ${away?.name}`}
+                          title={`${pitchBreak.startTime} - ${pitchBreak.label}`}
                         >
-                          {dropTargetFixtureId === fixture.id && (
-                            <div className="absolute top-0.5 right-5 rounded bg-amber-500/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
-                              Swap here
+                          <div className="relative h-full w-full px-1.5 py-1 text-slate-100">
+                            <div className="flex items-center justify-between gap-1">
+                              <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-200/90">
+                                Break {pitchBreak.startTime}
+                              </div>
+                              <button
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleDeleteBreak(pitch.id, pitchBreak.id);
+                                }}
+                                className="h-4 w-4 flex items-center justify-center rounded bg-slate-900/45 hover:bg-red-700/60 text-slate-100"
+                                title="Delete break"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
                             </div>
-                          )}
-                          {recentlySwappedIds.includes(fixture.id) && (
-                            <div className="absolute top-0.5 right-5 rounded bg-emerald-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
-                              Swapped
-                            </div>
-                          )}
-                          {recentlyPrimaryChangedId === fixture.id && (
-                            <div className="absolute top-0.5 left-0.5 rounded bg-amber-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
-                              Moved
-                            </div>
-                          )}
 
-                          {/* Match Duration Area */}
-                          <div
-                            className="w-full bg-blue-100 flex flex-col px-1 py-0.5"
-                            style={{ height: heightMatch }}
-                          >
-                            <div className="font-bold truncate text-blue-900">{fixture.startTime}</div>
-                            <div className="truncate font-medium text-blue-800 leading-tight">{home?.name} v {away?.name}</div>
+                            <input
+                              value={pitchBreak.label}
+                              onChange={(event) => updateBreakLabel(pitchBreak.id, event.target.value)}
+                              onBlur={() => commitBreakLabel(pitchBreak.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  (event.target as HTMLInputElement).blur();
+                                }
+                              }}
+                              className="mt-1 w-full h-5 rounded border border-slate-500/80 bg-slate-900/40 px-1 text-[10px] font-semibold text-slate-100 placeholder:text-slate-300 focus:outline-none focus:ring-1 focus:ring-amber-300"
+                              placeholder="Break label"
+                              aria-label="Break label"
+                            />
+
+                            <div className="mt-1 text-[9px] text-slate-200/90">{duration} min</div>
+
+                            <button
+                              type="button"
+                              onMouseDown={(event) => onBreakResizeMouseDown(event, pitchBreak)}
+                              className="absolute inset-x-0 bottom-0 h-2 cursor-row-resize bg-black/20 hover:bg-amber-500/40"
+                              title="Drag to resize break duration"
+                            >
+                              <span className="mx-auto mt-[2px] block h-[2px] w-8 rounded bg-slate-100/70" />
+                            </button>
                           </div>
-
-                          {/* Slack Duration Area */}
-                          <div
-                            className="w-full border-t border-blue-200/50"
-                            style={{
-                              height: heightSlack,
-                              background: 'repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 2px, #e2e8f0 2px, #e2e8f0 4px)'
-                            }}
-                          />
-
-                          {/* Remove Button (Hover only) */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleUnassign(fixture.id);
-                            }}
-                            className="absolute top-0.5 right-0.5 w-4 h-4 flex items-center justify-center rounded-full bg-white/50 hover:bg-red-100 text-slate-500 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
                         </div>
                       );
                     })}
