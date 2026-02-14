@@ -1,5 +1,6 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { Fixture } from '@/lib/types';
 import { useTournament } from '@/context/TournamentContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,12 +9,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Trash2, Plus, RefreshCw, ArrowLeft, Trophy, Edit2 } from 'lucide-react';
+import { Trash2, Plus, RefreshCw, ArrowLeft, Trophy, Edit2, AlertTriangle, Pencil } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { GroupList } from '@/components/GroupList';
 import { CompetitionBadge } from '@/components/CompetitionBadge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { KnockoutBuilderDialog } from '@/components/KnockoutBuilderDialog';
+import { TeamEditDialog } from '@/components/TeamEditDialog';
 
 const Competition = () => {
   const { id } = useParams<{ id: string }>();
@@ -34,10 +36,6 @@ const Competition = () => {
 
   const competition = competitions.find(c => c.id === id);
 
-  if (!competition) {
-    return <div>Competition not found</div>;
-  }
-
   const [newTeamName, setNewTeamName] = React.useState('');
   const [numGroups, setNumGroups] = React.useState(2);
 
@@ -51,6 +49,10 @@ const Competition = () => {
 
   // Knockout Builder State
   const [isKnockoutBuilderOpen, setIsKnockoutBuilderOpen] = React.useState(false);
+
+  if (!competition) {
+    return <div>Competition not found</div>;
+  }
 
   const handleAddTeam = () => {
     addTeam(competition.id, newTeamName || undefined);
@@ -91,6 +93,125 @@ const Competition = () => {
   const getTeamName = (id: string) => {
     const team = competition.teams.find(t => t.id === id);
     return team ? team.name : id;
+  };
+
+  const handleGroupGenerate = (label: string, groupId?: string) => {
+    const message = groupId
+      ? `This will regenerate fixtures for ${label}. Continue?`
+      : `This will regenerate ${label}. Continue?`;
+
+    if (confirm(message)) {
+      generateFixtures(competition.id, groupId);
+    }
+  };
+
+  const roundRobinFixtures = competition.fixtures.filter(fixture => fixture.stage === 'Group');
+  const knockoutFixtures = competition.fixtures.filter(fixture => fixture.stage !== 'Group');
+
+  type RoundRobinGroupEntry = {
+    id: string;
+    label: string;
+    fixtures: Fixture[];
+    expectedMatches?: number;
+    groupId?: string;
+  };
+
+  const roundRobinGroupEntries: RoundRobinGroupEntry[] = [];
+
+  (competition.groups || []).forEach((group) => {
+    const fixturesForGroup = roundRobinFixtures.filter(fixture => fixture.groupId === group.id);
+    if (fixturesForGroup.length > 0) {
+      const groupTeams = competition.teams.filter(team => team.groupId === group.id);
+      const expectedMatches = groupTeams.length > 1 ? (groupTeams.length * (groupTeams.length - 1)) / 2 : 0;
+      roundRobinGroupEntries.push({
+        id: group.id,
+        label: group.name,
+        fixtures: fixturesForGroup,
+        expectedMatches,
+        groupId: group.id
+      });
+    }
+  });
+
+  const ungroupedRoundRobinFixtures = roundRobinFixtures.filter(fixture => !fixture.groupId);
+  if (ungroupedRoundRobinFixtures.length > 0) {
+    roundRobinGroupEntries.push({
+      id: '__round-robin',
+      label: 'Round Robin',
+      fixtures: ungroupedRoundRobinFixtures
+    });
+  }
+
+  const hasFixtures = roundRobinGroupEntries.length > 0 || knockoutFixtures.length > 0;
+
+  type RenderFixtureTableOptions = {
+    includePitch?: boolean;
+    allowTeamEdit?: boolean;
+  };
+
+  const TeamNameCell: React.FC<{ teamId: string; allowEdit?: boolean }> = ({ teamId, allowEdit }) => {
+    const team = competition.teams.find(t => t.id === teamId);
+    if (!team) return <span className="font-medium">{teamId}</span>;
+    if (!allowEdit) {
+      return <span className="font-medium">{team.name}</span>;
+    }
+
+    return (
+      <TeamEditDialog competitionId={competition.id} team={team}>
+        <div className="group flex items-center gap-1 font-medium text-foreground">
+          <span>{team.name}</span>
+          <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
+        </div>
+      </TeamEditDialog>
+    );
+  };
+
+  const renderFixtureTable = (fixtures: Fixture[], options?: RenderFixtureTableOptions) => {
+    const { includePitch = true, allowTeamEdit = false } = options || {};
+
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Stage</TableHead>
+            <TableHead>Home</TableHead>
+            <TableHead>Away</TableHead>
+            {includePitch && <TableHead>Pitch</TableHead>}
+            <TableHead className="w-[50px]"></TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {fixtures.map((fixture) => (
+            <TableRow key={fixture.id}>
+              <TableCell>
+                <span className="font-semibold text-primary">{fixture.stage}</span>
+                {fixture.description && <span className="text-muted-foreground ml-2 text-xs">({fixture.description})</span>}
+              </TableCell>
+              <TableCell>
+                <TeamNameCell teamId={fixture.homeTeamId} allowEdit={allowTeamEdit} />
+              </TableCell>
+              <TableCell>
+                <TeamNameCell teamId={fixture.awayTeamId} allowEdit={allowTeamEdit} />
+              </TableCell>
+              {includePitch && (
+                <TableCell>
+                  {fixture.pitchId ? (
+                    <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">Assigned</span>
+                  ) : (
+                    <span className="text-muted-foreground text-xs italic">Unassigned</span>
+                  )}
+                </TableCell>
+              )}
+              <TableCell>
+                <Button variant="ghost" size="icon" onClick={() => deleteFixture(competition.id, fixture.id)}>
+                  <Trash2 className="h-4 w-4 text-red-500" />
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
   };
 
   return (
@@ -268,48 +389,64 @@ const Competition = () => {
               </div>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Stage</TableHead>
-                    <TableHead>Home</TableHead>
-                    <TableHead>Away</TableHead>
-                    <TableHead>Pitch</TableHead>
-                    <TableHead className="w-[50px]"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {competition.fixtures.map((fixture) => (
-                    <TableRow key={fixture.id}>
-                      <TableCell>
-                        <span className="font-semibold text-primary">{fixture.stage}</span>
-                        {fixture.description && <span className="text-muted-foreground ml-2 text-xs">({fixture.description})</span>}
-                      </TableCell>
-                      <TableCell className="font-medium">{getTeamName(fixture.homeTeamId)}</TableCell>
-                      <TableCell className="font-medium">{getTeamName(fixture.awayTeamId)}</TableCell>
-                      <TableCell>
-                        {fixture.pitchId ? (
-                          <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">Assigned</span>
-                        ) : (
-                          <span className="text-muted-foreground text-xs italic">Unassigned</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="icon" onClick={() => deleteFixture(competition.id, fixture.id)}>
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {competition.fixtures.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                        No fixtures generated yet.
-                      </TableCell>
-                    </TableRow>
+              {!hasFixtures ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No fixtures generated yet.
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  {roundRobinGroupEntries.map((entry) => {
+                    const hasExpectedInfo = typeof entry.expectedMatches === 'number' && entry.expectedMatches > 0;
+                    const isGroupIncomplete = hasExpectedInfo && entry.fixtures.length < (entry.expectedMatches ?? 0);
+                    const wrapperClasses = [
+                      'space-y-3',
+                      'rounded-xl',
+                      'border',
+                      'p-4',
+                      'transition-colors',
+                      isGroupIncomplete ? 'border-amber-500/70 bg-amber-50/70 shadow-sm' : 'border-border/30 bg-background'
+                    ].join(' ');
+
+                    return (
+                    <div key={entry.id} className={wrapperClasses}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-semibold">{entry.label} Fixtures</h3>
+                          {isGroupIncomplete && (
+                            <span className="flex items-center gap-1 text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                              Missing matches
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground">{entry.fixtures.length} matches</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-primary hover:bg-primary/10"
+                            onClick={() => handleGroupGenerate(entry.label, entry.groupId)}
+                            title={`Regenerate ${entry.label}`}
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                        {renderFixtureTable(entry.fixtures, { includePitch: false, allowTeamEdit: true })}
+                      </div>
+                    );
+                  })}
+                  {knockoutFixtures.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold">Knockouts</h3>
+                        <span className="text-sm text-muted-foreground">{knockoutFixtures.length} matches</span>
+                      </div>
+                      {renderFixtureTable(knockoutFixtures)}
+                    </div>
                   )}
-                </TableBody>
-              </Table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
