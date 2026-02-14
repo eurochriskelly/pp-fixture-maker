@@ -20,8 +20,8 @@ interface TournamentContextType {
   generateFixtures: (competitionId: string, targetGroupId?: string) => void;
   addManualFixture: (competitionId: string, fixture: Omit<Fixture, 'id' | 'competitionId'>) => void;
   addFixtures: (competitionId: string, fixtures: Omit<Fixture, 'id' | 'competitionId'>[]) => void;
-  updateFixture: (competitionId: string, fixtureId: string, updates: Partial<Fixture>) => void;
-  deleteFixture: (competitionId: string, fixtureId: string) => void;
+  updateFixture: (competitionId: string, fixtureId: string, updates: Partial<Fixture>, shouldRecalculate?: boolean) => void;
+  deleteFixture: (competitionId: string, fixtureId: string, shouldRecalculate?: boolean) => void;
 
   // Group Actions
   createGroup: (competitionId: string, name: string) => void;
@@ -40,7 +40,8 @@ interface TournamentContextType {
   updateGroup: (competitionId: string, groupId: string, updates: Partial<Group>) => void;
   reorderFixtureToPitch: (fixtureId: string, targetPitchId: string, targetIndex?: number) => void;
   updateCompetition: (id: string, updates: Partial<Competition>) => void;
-  batchUpdateFixtures: (updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[]) => void;
+  batchUpdateFixtures: (updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[], shouldRecalculate?: boolean) => void;
+  recalculateSchedule: (competitionId: string) => void;
 }
 
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
@@ -400,28 +401,56 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
   };
 
-  const updateFixture = (competitionId: string, fixtureId: string, updates: Partial<Fixture>) => {
-    setCompetitions(competitions.map(comp => {
-      if (comp.id === competitionId) {
-        return {
-          ...comp,
-          fixtures: comp.fixtures.map(f => f.id === fixtureId ? { ...f, ...updates } : f)
-        };
+  const updateFixture = (competitionId: string, fixtureId: string, updates: Partial<Fixture>, shouldRecalculate = false) => {
+    setCompetitions(competitions => {
+      const nextCompetitions = competitions.map(comp => {
+        if (comp.id === competitionId) {
+          return {
+            ...comp,
+            fixtures: comp.fixtures.map(f => f.id === fixtureId ? { ...f, ...updates } : f)
+          };
+        }
+        return comp;
+      });
+
+      if (shouldRecalculate) {
+        const recalculated = nextCompetitions.map(comp => {
+          if (comp.id === competitionId) {
+            return recalculateCompetitionSchedule(comp);
+          }
+          return comp;
+        });
+        return enforceNoPitchOverlaps(recalculated);
       }
-      return comp;
-    }));
+
+      return nextCompetitions;
+    });
   };
 
-  const deleteFixture = (competitionId: string, fixtureId: string) => {
-    setCompetitions(competitions.map(comp => {
-      if (comp.id === competitionId) {
-        return {
-          ...comp,
-          fixtures: comp.fixtures.filter(f => f.id !== fixtureId)
-        };
+  const deleteFixture = (competitionId: string, fixtureId: string, shouldRecalculate = false) => {
+    setCompetitions(competitions => {
+      const nextCompetitions = competitions.map(comp => {
+        if (comp.id === competitionId) {
+          return {
+            ...comp,
+            fixtures: comp.fixtures.filter(f => f.id !== fixtureId)
+          };
+        }
+        return comp;
+      });
+
+      if (shouldRecalculate) {
+        const recalculated = nextCompetitions.map(comp => {
+          if (comp.id === competitionId) {
+            return recalculateCompetitionSchedule(comp);
+          }
+          return comp;
+        });
+        return enforceNoPitchOverlaps(recalculated);
       }
-      return comp;
-    }));
+
+      return nextCompetitions;
+    });
   };
 
   const addPitch = (name: string, startTime?: string, endTime?: string) => {
@@ -578,6 +607,128 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           return fixtureUpdates ? { ...fixture, ...fixtureUpdates } : fixture;
         }),
       };
+    });
+  };
+
+  const recalculateCompetitionSchedule = (competition: Competition): Competition => {
+    const KNOCKOUT_TIER: Record<string, number> = {
+      'Round of 16': 0,
+      'Quarter-Final': 1,
+      'Semi-Final': 2,
+      '3rd Place Playoff': 3,
+      'Final': 3,
+    };
+    const groupsById = new Map((competition.groups || []).map((group) => [group.id, group]));
+    const pitchStartById = new Map(pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)]));
+    const fixtureUpdates = new Map<string, Partial<Fixture>>();
+    const pitchCursorById = new Map(pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)]));
+
+    const getStartTime = (f: Fixture) => (f.startTime ? parseTimeToMinutes(f.startTime) : undefined);
+
+    const groupStageFixtures = competition.fixtures.filter((f) => !f.stage || f.stage === 'Group');
+    const knockoutFixtures = competition.fixtures.filter((f) => f.stage && f.stage !== 'Group');
+
+    // 1. Group Stage
+    const groupFixturesByPitch = new Map<string, Fixture[]>();
+    groupStageFixtures.forEach((f) => {
+      if (!f.pitchId) return;
+      if (!groupFixturesByPitch.has(f.pitchId)) groupFixturesByPitch.set(f.pitchId, []);
+      groupFixturesByPitch.get(f.pitchId)!.push(f);
+    });
+
+    let groupStageEndTime = 0;
+    for (const [pitchId, fixtures] of groupFixturesByPitch) {
+      fixtures.sort((a, b) => (getStartTime(a) || 0) - (getStartTime(b) || 0));
+
+      let cursor = pitchStartById.get(pitchId) || 0;
+
+      for (const fixture of fixtures) {
+        const { duration, slack } = getFixtureTimingConfig(fixture, groupsById);
+        
+        // Force repack: ignore existing fixture.startTime, snap to cursor
+        const start = cursor;
+
+        fixtureUpdates.set(fixture.id, { startTime: toTimeString(start), duration });
+        cursor = start + duration + slack;
+        pitchCursorById.set(pitchId, cursor);
+      }
+    }
+
+    for (const [, cursor] of pitchCursorById) {
+      groupStageEndTime = Math.max(groupStageEndTime, cursor);
+    }
+
+    // 2. Knockout Stage
+    const fixturesByTier = new Map<number, Fixture[]>();
+    knockoutFixtures.forEach((f) => {
+      const tier = KNOCKOUT_TIER[f.stage as string] ?? 99;
+      if (!fixturesByTier.has(tier)) fixturesByTier.set(tier, []);
+      fixturesByTier.get(tier)!.push(f);
+    });
+
+    const sortedTiers = Array.from(fixturesByTier.keys()).sort((a, b) => a - b);
+    let tierMinStartTime = groupStageEndTime;
+
+    for (const tier of sortedTiers) {
+      const tierFixtures = fixturesByTier.get(tier)!;
+      const tierFixturesByPitch = new Map<string, Fixture[]>();
+      
+      tierFixtures.forEach((f) => {
+        if (!f.pitchId) return;
+        if (!tierFixturesByPitch.has(f.pitchId)) tierFixturesByPitch.set(f.pitchId, []);
+        tierFixturesByPitch.get(f.pitchId)!.push(f);
+      });
+
+      let tierMaxEndTime = tierMinStartTime;
+
+      for (const [pitchId, fixtures] of tierFixturesByPitch) {
+        fixtures.sort((a, b) => (getStartTime(a) || 0) - (getStartTime(b) || 0));
+
+        let cursor = pitchCursorById.get(pitchId) || 0;
+        const naturalCursorStart = cursor; 
+
+        for (const fixture of fixtures) {
+          const { duration, slack } = getFixtureTimingConfig(fixture, groupsById);
+          
+          // Force repack: ignore existing fixture.startTime, snap to cursor or tierMinStartTime
+          const start = Math.max(cursor, tierMinStartTime);
+
+          // Calculate slackBefore (wait time due to dependencies)
+          // If start is pushed by tierMinStartTime, the gap from cursor is slackBefore
+          const slackBefore = Math.max(0, start - cursor);
+
+          fixtureUpdates.set(fixture.id, { 
+            startTime: toTimeString(start), 
+            duration,
+            slackBefore 
+          });
+          
+          const end = start + duration + slack;
+          cursor = end;
+          tierMaxEndTime = Math.max(tierMaxEndTime, end);
+        }
+        pitchCursorById.set(pitchId, cursor);
+      }
+      
+      tierMinStartTime = tierMaxEndTime;
+    }
+
+    return {
+      ...competition,
+      fixtures: competition.fixtures.map((f) => {
+        const update = fixtureUpdates.get(f.id);
+        return update ? { ...f, ...update } : f;
+      }),
+    };
+  };
+
+  const recalculateSchedule = (competitionId: string) => {
+    setCompetitions((prevCompetitions) => {
+      const scheduledCompetitions = prevCompetitions.map((competition) => {
+        if (competition.id !== competitionId) return competition;
+        return recalculateCompetitionSchedule(competition);
+      });
+      return enforceNoPitchOverlaps(scheduledCompetitions);
     });
   };
 
@@ -852,10 +1003,10 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
   };
 
-  const batchUpdateFixtures = (updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[]) => {
+  const batchUpdateFixtures = (updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[], shouldRecalculate = false) => {
     setCompetitions(prevCompetitions => {
       // Create a map for faster lookup if needed, but array size is likely small enough
-      return prevCompetitions.map(comp => {
+      const nextCompetitions = prevCompetitions.map(comp => {
         const compUpdates = updates.filter(u => u.competitionId === comp.id);
         if (compUpdates.length === 0) return comp;
 
@@ -872,6 +1023,20 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           })
         };
       });
+
+      if (shouldRecalculate) {
+         // Recalculate affected competitions
+         const affectedCompetitionIds = new Set(updates.map(u => u.competitionId));
+         const recalculated = nextCompetitions.map(comp => {
+            if (affectedCompetitionIds.has(comp.id)) {
+               return recalculateCompetitionSchedule(comp);
+            }
+            return comp;
+         });
+         return enforceNoPitchOverlaps(recalculated);
+      }
+
+      return nextCompetitions;
     });
   };
 
