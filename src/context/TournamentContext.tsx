@@ -36,6 +36,7 @@ interface TournamentContextType {
 
   // Scheduling
   autoScheduleMatches: (competitionId: string) => void;
+  resetAllSchedules: () => void;
   updateGroup: (competitionId: string, groupId: string, updates: Partial<Group>) => void;
   reorderFixtureToPitch: (fixtureId: string, targetPitchId: string, targetIndex?: number) => void;
   updateCompetition: (id: string, updates: Partial<Competition>) => void;
@@ -684,6 +685,19 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   };
 
+  const resetAllSchedules = () => {
+    setCompetitions((prev) =>
+      prev.map((comp) => ({
+        ...comp,
+        fixtures: comp.fixtures.map((f) => ({
+          ...f,
+          pitchId: undefined,
+          startTime: undefined,
+        })),
+      }))
+    );
+  };
+
   const reorderFixtureToPitch = (fixtureId: string, targetPitchId: string, targetIndex: number = -1) => {
     // 1. Find the fixture and its competition
     let targetFixture: Fixture | undefined;
@@ -808,6 +822,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       updatePitch,
       deletePitch,
       autoScheduleMatches,
+      resetAllSchedules,
       reorderFixtureToPitch,
       updateCompetition,
       batchUpdateFixtures
