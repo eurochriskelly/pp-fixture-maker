@@ -21,16 +21,6 @@ const Index = () => {
 
   return (
     <div className="container mx-auto p-4 max-w-5xl space-y-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl">Tournament Maker</h1>
-          <p className="text-muted-foreground mt-2">Create competitions, manage teams, and schedule fixtures.</p>
-        </div>
-        <Button onClick={() => navigate('/schedule')} size="lg" className="w-full md:w-auto">
-          <Calendar className="mr-2 h-5 w-5" /> Global Schedule
-        </Button>
-      </div>
-
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <Card className="border-dashed border-2 flex flex-col justify-center items-center p-6 h-full min-h-[200px] hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => document.getElementById('new-comp-input')?.focus()}>
           <div className="text-center space-y-4 w-full">
