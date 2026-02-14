@@ -8,12 +8,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Trash2, Plus, RefreshCw, ArrowLeft, Trophy } from 'lucide-react';
+import { Trash2, Plus, RefreshCw, ArrowLeft, Trophy, Edit2 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { GroupList } from '@/components/GroupList';
 import { CompetitionBadge } from '@/components/CompetitionBadge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Edit2 } from 'lucide-react';
+import { KnockoutBuilderDialog } from '@/components/KnockoutBuilderDialog';
 
 const Competition = () => {
   const { id } = useParams<{ id: string }>();
@@ -25,6 +25,7 @@ const Competition = () => {
     deleteTeam,
     generateFixtures,
     addManualFixture,
+    addFixtures,
     deleteCompetition,
     deleteFixture,
     autoAssignGroups,
@@ -47,6 +48,9 @@ const Competition = () => {
   const [manualAway, setManualAway] = React.useState('');
   const [customHome, setCustomHome] = React.useState('');
   const [customAway, setCustomAway] = React.useState('');
+
+  // Knockout Builder State
+  const [isKnockoutBuilderOpen, setIsKnockoutBuilderOpen] = React.useState(false);
 
   const handleAddTeam = () => {
     addTeam(competition.id, newTeamName || undefined);
@@ -78,6 +82,10 @@ const Competition = () => {
       setCustomHome('');
       setCustomAway('');
     }
+  };
+
+  const handleKnockoutGenerate = (fixtures: any[]) => {
+    addFixtures(competition.id, fixtures);
   };
 
   const getTeamName = (id: string) => {
@@ -193,10 +201,11 @@ const Competition = () => {
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Fixtures</CardTitle>
               <div className="flex gap-2">
+                {/* Manual Fixture Dialog */}
                 <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button variant="outline">
-                      <Plus className="mr-2 h-4 w-4" /> Add Playoff/Final
+                    <Button variant="outline" size="sm">
+                      <Plus className="mr-2 h-4 w-4" /> Manual
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
@@ -243,8 +252,18 @@ const Competition = () => {
                   </DialogContent>
                 </Dialog>
 
+                {/* Knockout Builder Button */}
+                <Button 
+                  variant="outline" 
+                  onClick={() => setIsKnockoutBuilderOpen(true)}
+                  className="hidden sm:flex"
+                >
+                  <Trophy className="mr-2 h-4 w-4" /> Knockouts
+                </Button>
+
+                {/* Generate Round Robin Button */}
                 <Button onClick={handleGenerate} disabled={competition.teams.length < 2}>
-                  <RefreshCw className="mr-2 h-4 w-4" /> Generate Round Robin
+                  <RefreshCw className="mr-2 h-4 w-4" /> Round Robin
                 </Button>
               </div>
             </CardHeader>
@@ -295,6 +314,15 @@ const Competition = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <KnockoutBuilderDialog 
+        open={isKnockoutBuilderOpen}
+        onOpenChange={setIsKnockoutBuilderOpen}
+        competitionId={competition.id}
+        groups={competition.groups || []}
+        teams={competition.teams}
+        onGenerate={handleKnockoutGenerate}
+      />
     </div>
   );
 };

@@ -19,6 +19,7 @@ interface TournamentContextType {
   // Fixture Actions
   generateFixtures: (competitionId: string) => void;
   addManualFixture: (competitionId: string, fixture: Omit<Fixture, 'id' | 'competitionId'>) => void;
+  addFixtures: (competitionId: string, fixtures: Omit<Fixture, 'id' | 'competitionId'>[]) => void;
   updateFixture: (competitionId: string, fixtureId: string, updates: Partial<Fixture>) => void;
   deleteFixture: (competitionId: string, fixtureId: string) => void;
 
@@ -344,11 +345,28 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const addManualFixture = (competitionId: string, fixture: Omit<Fixture, 'id' | 'competitionId'>) => {
-    setCompetitions(competitions.map(comp => {
+    setCompetitions(prev => prev.map(comp => {
       if (comp.id === competitionId) {
         return {
           ...comp,
           fixtures: [...comp.fixtures, { ...fixture, id: uuidv4(), competitionId }]
+        };
+      }
+      return comp;
+    }));
+  };
+
+  const addFixtures = (competitionId: string, newFixtures: Omit<Fixture, 'id' | 'competitionId'>[]) => {
+    setCompetitions(prev => prev.map(comp => {
+      if (comp.id === competitionId) {
+        const fixturesToAdd = newFixtures.map(f => ({
+          ...f,
+          id: uuidv4(),
+          competitionId
+        }));
+        return {
+          ...comp,
+          fixtures: [...comp.fixtures, ...fixturesToAdd]
         };
       }
       return comp;
@@ -757,6 +775,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       autoAssignGroups,
       generateFixtures,
       addManualFixture,
+      addFixtures,
       updateFixture,
       deleteFixture,
       addPitch,
