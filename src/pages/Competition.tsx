@@ -315,12 +315,13 @@ const Competition = () => {
         </TabsContent>
       </Tabs>
 
-      <KnockoutBuilderDialog 
+      <KnockoutBuilderDialog
         open={isKnockoutBuilderOpen}
         onOpenChange={setIsKnockoutBuilderOpen}
         competitionId={competition.id}
         groups={competition.groups || []}
         teams={competition.teams}
+        existingFixtures={competition.fixtures}
         onGenerate={handleKnockoutGenerate}
       />
     </div>

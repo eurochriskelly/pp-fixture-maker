@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Group, Team } from '@/lib/types';
+import { Group, Team, Fixture } from '@/lib/types';
 import { Trophy, Plus, Trash2, ArrowRight } from 'lucide-react';
 
 interface KnockoutBuilderDialogProps {
@@ -15,14 +15,15 @@ interface KnockoutBuilderDialogProps {
   competitionId: string;
   groups: Group[];
   teams: Team[];
+  existingFixtures?: Fixture[]; // Pass existing fixtures to pre-fill
   onGenerate: (fixtures: any[]) => void;
 }
 
 type StageType = 'Round of 16' | 'Quarter-Final' | 'Semi-Final' | 'Final' | '3rd Place Playoff';
 
 interface MatchConfig {
-  id: string;
-  name: string;
+  id: string; // Internal stable ID like "QF1", "Final"
+  name: string; // User-editable display name
   homeSource: string;
   awaySource: string;
 }
@@ -92,6 +93,7 @@ export const KnockoutBuilderDialog: React.FC<KnockoutBuilderDialogProps> = ({
   competitionId,
   groups,
   teams,
+  existingFixtures = [],
   onGenerate
 }) => {
   const [stages, setStages] = useState<StageConfig[]>(JSON.parse(JSON.stringify(DEFAULT_STAGES)));
@@ -99,46 +101,68 @@ export const KnockoutBuilderDialog: React.FC<KnockoutBuilderDialogProps> = ({
   // Reset or preset defaults when opening
   useEffect(() => {
     if (open) {
+      // Start with default structure
       const newStages = JSON.parse(JSON.stringify(DEFAULT_STAGES));
-      
-      // Smart defaults logic
-      if (groups.length === 4) {
-        // Enable QF
-        const qf = newStages.find((s: StageConfig) => s.type === 'Quarter-Final');
-        if (qf) {
-          qf.enabled = true;
-          // Standard cross-group pairing
-          qf.matches[0].homeSource = '1st Group A'; qf.matches[0].awaySource = '2nd Group B';
-          qf.matches[1].homeSource = '1st Group C'; qf.matches[1].awaySource = '2nd Group D';
-          qf.matches[2].homeSource = '1st Group B'; qf.matches[2].awaySource = '2nd Group A';
-          qf.matches[3].homeSource = '1st Group D'; qf.matches[3].awaySource = '2nd Group C';
+      let hasExistingConfig = false;
+
+      // Try to hydrate from existing fixtures if they have matchId
+      if (existingFixtures.length > 0) {
+        newStages.forEach((stage: StageConfig) => {
+           let stageActive = false;
+           stage.matches.forEach(match => {
+              const existing = existingFixtures.find(f => f.matchId === match.id);
+              if (existing) {
+                 stageActive = true;
+                 hasExistingConfig = true;
+                 match.name = existing.description || match.name;
+                 match.homeSource = existing.homeTeamId;
+                 match.awaySource = existing.awayTeamId;
+              }
+           });
+           // If we found any match for this stage, enable it.
+           // Exception: If we only found *some* matches, we still enable the stage.
+           if (stageActive) {
+             stage.enabled = true;
+           }
+        });
+      }
+
+      // If no existing config found, apply smart defaults
+      if (!hasExistingConfig) {
+        if (groups.length === 4) {
+          const qf = newStages.find((s: StageConfig) => s.type === 'Quarter-Final');
+          if (qf) {
+            qf.enabled = true;
+            qf.matches[0].homeSource = '1st Group A'; qf.matches[0].awaySource = '2nd Group B';
+            qf.matches[1].homeSource = '1st Group C'; qf.matches[1].awaySource = '2nd Group D';
+            qf.matches[2].homeSource = '1st Group B'; qf.matches[2].awaySource = '2nd Group A';
+            qf.matches[3].homeSource = '1st Group D'; qf.matches[3].awaySource = '2nd Group C';
+          }
+          
+          const sf = newStages.find((s: StageConfig) => s.type === 'Semi-Final');
+          if (sf) {
+            sf.matches[0].homeSource = 'Winner QF 1'; sf.matches[0].awaySource = 'Winner QF 2';
+            sf.matches[1].homeSource = 'Winner QF 3'; sf.matches[1].awaySource = 'Winner QF 4';
+          }
+        } 
+        else if (groups.length === 2) {
+           const sf = newStages.find((s: StageConfig) => s.type === 'Semi-Final');
+           if (sf) {
+             sf.enabled = true;
+             const g1Name = groups[0]?.name || 'Group A';
+             const g2Name = groups[1]?.name || 'Group B';
+             
+             sf.matches[0].homeSource = `1st ${g1Name}`;
+             sf.matches[0].awaySource = `2nd ${g2Name}`;
+             sf.matches[1].homeSource = `1st ${g2Name}`;
+             sf.matches[1].awaySource = `2nd ${g1Name}`;
+           }
         }
-        
-        const sf = newStages.find((s: StageConfig) => s.type === 'Semi-Final');
-        if (sf) {
-          sf.matches[0].homeSource = 'Winner QF 1'; sf.matches[0].awaySource = 'Winner QF 2';
-          sf.matches[1].homeSource = 'Winner QF 3'; sf.matches[1].awaySource = 'Winner QF 4';
-        }
-      } 
-      else if (groups.length === 2) {
-         // Direct to SF
-         const sf = newStages.find((s: StageConfig) => s.type === 'Semi-Final');
-         if (sf) {
-           sf.enabled = true;
-           const g1Name = groups[0]?.name || 'Group A';
-           const g2Name = groups[1]?.name || 'Group B';
-           
-           // If we can identify them as A and B easily
-           sf.matches[0].homeSource = `1st ${g1Name}`;
-           sf.matches[0].awaySource = `2nd ${g2Name}`;
-           sf.matches[1].homeSource = `1st ${g2Name}`;
-           sf.matches[1].awaySource = `2nd ${g1Name}`;
-         }
       }
 
       setStages(newStages);
     }
-  }, [open, groups.length]);
+  }, [open, groups.length, existingFixtures]);
 
   const getSourceOptions = (currentStageIndex: number) => {
     const groupOptions: { value: string; label: string }[] = [];
@@ -148,7 +172,6 @@ export const KnockoutBuilderDialog: React.FC<KnockoutBuilderDialogProps> = ({
     // 1. Group Positions
     if (groups.length > 0) {
       groups.forEach((g, i) => {
-        // Try to keep it short but descriptive
         const groupLabel = g.name; 
         groupOptions.push({ value: `1st ${groupLabel}`, label: `1st ${groupLabel}` });
         groupOptions.push({ value: `2nd ${groupLabel}`, label: `2nd ${groupLabel}` });
@@ -156,8 +179,6 @@ export const KnockoutBuilderDialog: React.FC<KnockoutBuilderDialogProps> = ({
         groupOptions.push({ value: `4th ${groupLabel}`, label: `4th ${groupLabel}` });
       });
     } else {
-        // Fallback if no groups defined (e.g. single league)
-        // Maybe show league positions?
         groupOptions.push({ value: '1st Place', label: '1st Place' });
         groupOptions.push({ value: '2nd Place', label: '2nd Place' });
         groupOptions.push({ value: '3rd Place', label: '3rd Place' });
@@ -217,25 +238,17 @@ export const KnockoutBuilderDialog: React.FC<KnockoutBuilderDialogProps> = ({
       if (!stage.enabled) return;
 
       stage.matches.forEach(match => {
-        // Only add if at least one source is selected? Or both?
-        // Let's require both for now, or maybe allow partials (TBD)
         if (match.homeSource || match.awaySource) {
            const homeIsTeam = teams.some(t => t.id === match.homeSource);
            const awayIsTeam = teams.some(t => t.id === match.awaySource);
 
-           // Construct the fixture object
-           // If it's a team ID, use it. If not, use the source string as the ID (as a placeholder)
-           // The system should ideally support non-UUID IDs for placeholders, or we map them later.
-           // Since UUIDs are expected for team IDs usually, but here we might put "Winner QF1".
-           // The `Fixture` type expects string for teamId. `getTeamName` handles missing teams by returning the ID.
-           // So this works perfectly for placeholders!
-
            fixtures.push({
+             matchId: match.id, // Stable ID for upsert
              homeTeamId: homeIsTeam ? match.homeSource : (match.homeSource || 'TBD'),
              awayTeamId: awayIsTeam ? match.awaySource : (match.awaySource || 'TBD'),
              stage: stage.type,
              description: match.name, 
-             duration: 30, // Default duration
+             duration: 30,
            });
         }
       });
@@ -244,6 +257,10 @@ export const KnockoutBuilderDialog: React.FC<KnockoutBuilderDialogProps> = ({
     onGenerate(fixtures);
     onOpenChange(false);
   };
+
+  // We want to render stages in reverse order (Finals first)
+  // But we need the original index for state updates
+  const reversedIndices = stages.map((_, i) => i).reverse();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -262,7 +279,9 @@ export const KnockoutBuilderDialog: React.FC<KnockoutBuilderDialogProps> = ({
 
         <ScrollArea className="flex-1 px-6">
           <div className="space-y-6 py-4">
-            {stages.map((stage, stageIndex) => (
+            {reversedIndices.map((stageIndex) => {
+              const stage = stages[stageIndex];
+              return (
               <div key={stage.type} className={`space-y-4 border rounded-xl p-4 transition-colors ${stage.enabled ? 'bg-card border-primary/20 shadow-sm' : 'bg-muted/10 opacity-70'}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -381,7 +400,8 @@ export const KnockoutBuilderDialog: React.FC<KnockoutBuilderDialogProps> = ({
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </ScrollArea>
 
@@ -390,7 +410,7 @@ export const KnockoutBuilderDialog: React.FC<KnockoutBuilderDialogProps> = ({
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button onClick={handleGenerate} className="gap-2">
                 <Trophy className="w-4 h-4" />
-                Generate Fixtures
+                {existingFixtures.length > 0 ? 'Update Fixtures' : 'Generate Fixtures'}
             </Button>
             </DialogFooter>
         </div>

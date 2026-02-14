@@ -27,6 +27,7 @@ export interface Fixture {
   stage: string; // "Group", "Final", etc.
   description?: string; // Optional description like "1st vs 2nd"
   groupId?: string; // Optional: Link fixture to a group
+  matchId?: string; // Optional: Stable ID for knockout matches (e.g. "QF1", "Final")
 }
 
 export interface Competition {
