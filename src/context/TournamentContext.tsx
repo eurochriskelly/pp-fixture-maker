@@ -1,18 +1,24 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Competition, Fixture, Pitch, Team, Group } from '@/lib/types';
+import { Competition, Fixture, Pitch, Team, Group, Club } from '@/lib/types';
 import { v4 as uuidv4 } from 'uuid';
 import { getGroupPitchIds } from '@/lib/groupPitches';
 
 interface TournamentContextType {
   competitions: Competition[];
   pitches: Pitch[];
+  clubs: Club[];
 
   // Competition Actions
   addCompetition: (name: string) => void;
   deleteCompetition: (id: string) => void;
 
+  // Club Actions
+  addClub: (club: Omit<Club, 'id'>) => void;
+  updateClub: (id: string, updates: Partial<Club>) => void;
+  deleteClub: (id: string) => void;
+
   // Team Actions
-  addTeam: (competitionId: string, name?: string) => void;
+  addTeam: (competitionId: string, name?: string, clubId?: string) => void;
   updateTeam: (competitionId: string, teamId: string, updates: Partial<Team>) => void;
   deleteTeam: (competitionId: string, teamId: string) => void;
 
@@ -109,6 +115,11 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [clubs, setClubs] = useState<Club[]>(() => {
+    const saved = localStorage.getItem('tournament_clubs');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   // Save to local storage
   useEffect(() => {
     localStorage.setItem('tournament_competitions', JSON.stringify(competitions));
@@ -117,6 +128,10 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   useEffect(() => {
     localStorage.setItem('tournament_pitches', JSON.stringify(pitches));
   }, [pitches]);
+
+  useEffect(() => {
+    localStorage.setItem('tournament_clubs', JSON.stringify(clubs));
+  }, [clubs]);
 
   const addCompetition = (name: string) => {
     // Generate code from initials
@@ -151,12 +166,41 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setCompetitions(competitions.filter(c => c.id !== id));
   };
 
-  const addTeam = (competitionId: string, name?: string) => {
+  const addClub = (club: Omit<Club, 'id'>) => {
+    setClubs([...clubs, { ...club, id: uuidv4() }]);
+  };
+
+  const updateClub = (id: string, updates: Partial<Club>) => {
+    setClubs(clubs.map(c => c.id === id ? { ...c, ...updates } : c));
+  };
+
+  const deleteClub = (id: string) => {
+    setClubs(clubs.filter(c => c.id !== id));
+    // Optionally update teams that were linked to this club
+    setCompetitions(competitions.map(comp => ({
+      ...comp,
+      teams: comp.teams.map(t => t.clubId === id ? { ...t, clubId: undefined } : t)
+    })));
+  };
+
+  const addTeam = (competitionId: string, name?: string, clubId?: string) => {
     setCompetitions(competitions.map(comp => {
       if (comp.id === competitionId) {
-        const teamName = name || String.fromCharCode(65 + (comp.teams.length % 26)); // A, B, C... then Z, [, \ ... fix later if > 26
-        // Better naming: A..Z, then AA..AZ
         let finalName = name;
+        let initials;
+        let primaryColor;
+        let secondaryColor;
+
+        if (clubId) {
+           const club = clubs.find(c => c.id === clubId);
+           if (club && !finalName) {
+             finalName = club.name;
+             initials = club.code;
+             primaryColor = club.primaryColor;
+             secondaryColor = club.secondaryColor;
+           }
+        }
+
         if (!finalName) {
           const index = comp.teams.length;
           if (index < 26) {
@@ -168,7 +212,14 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         return {
           ...comp,
-          teams: [...comp.teams, { id: uuidv4(), name: finalName }]
+          teams: [...comp.teams, { 
+            id: uuidv4(), 
+            name: finalName, 
+            clubId,
+            initials,
+            primaryColor,
+            secondaryColor
+          }]
         };
       }
       return comp;
@@ -259,7 +310,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }));
 
         // Distribute teams
-        // Shuffle teams first? Maybe keep current order but distribute round-robin
         const updatedTeams = teams.map((team, index) => ({
           ...team,
           groupId: newGroups[index % numGroups].id
@@ -269,7 +319,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           ...comp,
           groups: newGroups,
           teams: updatedTeams,
-          // Clear existing fixtures? Probably safe to separate concern, but usually auto-group implies re-start
           fixtures: []
         };
       }
@@ -320,7 +369,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                   homeTeamId: home.id,
                   awayTeamId: away.id,
                   stage: 'Group',
-                  // If it's a real group, use its name, otherwise maybe just "Group"
                   description: (group.id !== 'default') ? `${group.name} - R${round + 1}` : `Round ${round + 1}`,
                   duration: 20,
                   groupId: (group.id !== 'default') ? group.id : undefined
@@ -369,7 +417,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addFixtures = (competitionId: string, newFixtures: Omit<Fixture, 'id' | 'competitionId'>[]) => {
     setCompetitions(prev => prev.map(comp => {
       if (comp.id === competitionId) {
-        // Upsert logic: if a fixture has a matchId, check if it already exists
         const fixturesToAdd: Fixture[] = [];
         const fixturesToUpdate = new Map<string, Partial<Fixture>>();
 
@@ -463,8 +510,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deletePitch = (id: string) => {
     setPitches(pitches.filter(p => p.id !== id));
-
-    // Unassign fixtures that were on the removed pitch to avoid dangling pitch IDs.
     setCompetitions(prevCompetitions =>
       prevCompetitions.map(comp => {
         const nextGroups = (comp.groups || []).map((group) => {
@@ -513,7 +558,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const getFixtureTimingConfig = (fixture: Fixture, groupsById: Map<string, Group>) => {
     const group = fixture.groupId ? groupsById.get(fixture.groupId) : undefined;
-
     return {
       group,
       duration: group?.defaultDuration ?? fixture.duration ?? 20,
@@ -581,7 +625,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
 
       pitchFixtures.forEach((item) => {
-        // Respect slackBefore: the fixture can't start until cursor + slackBefore
         const effectiveEarliest = cursor + item.slackBefore;
         const startMinutes = Math.max(effectiveEarliest, item.requestedStart);
         const updatesForCompetition =
@@ -628,7 +671,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const groupStageFixtures = competition.fixtures.filter((f) => !f.stage || f.stage === 'Group');
     const knockoutFixtures = competition.fixtures.filter((f) => f.stage && f.stage !== 'Group');
 
-    // 1. Group Stage
     const groupFixturesByPitch = new Map<string, Fixture[]>();
     groupStageFixtures.forEach((f) => {
       if (!f.pitchId) return;
@@ -644,10 +686,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       for (const fixture of fixtures) {
         const { duration, slack } = getFixtureTimingConfig(fixture, groupsById);
-        
-        // Force repack: ignore existing fixture.startTime, snap to cursor
         const start = cursor;
-
         fixtureUpdates.set(fixture.id, { startTime: toTimeString(start), duration });
         cursor = start + duration + slack;
         pitchCursorById.set(pitchId, cursor);
@@ -658,7 +697,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       groupStageEndTime = Math.max(groupStageEndTime, cursor);
     }
 
-    // 2. Knockout Stage
     const fixturesByTier = new Map<number, Fixture[]>();
     knockoutFixtures.forEach((f) => {
       const tier = KNOCKOUT_TIER[f.stage as string] ?? 99;
@@ -685,16 +723,10 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         fixtures.sort((a, b) => (getStartTime(a) || 0) - (getStartTime(b) || 0));
 
         let cursor = pitchCursorById.get(pitchId) || 0;
-        const naturalCursorStart = cursor; 
 
         for (const fixture of fixtures) {
           const { duration, slack } = getFixtureTimingConfig(fixture, groupsById);
-          
-          // Force repack: ignore existing fixture.startTime, snap to cursor or tierMinStartTime
           const start = Math.max(cursor, tierMinStartTime);
-
-          // Calculate slackBefore (wait time due to dependencies)
-          // If start is pushed by tierMinStartTime, the gap from cursor is slackBefore
           const slackBefore = Math.max(0, start - cursor);
 
           fixtureUpdates.set(fixture.id, { 
@@ -733,8 +765,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const autoScheduleMatches = (competitionId: string) => {
-    // Knockout stages ordered by dependency tier.
-    // Stages in the same tier can be played in parallel.
     const KNOCKOUT_TIER: Record<string, number> = {
       'Round of 16': 0,
       'Quarter-Final': 1,
@@ -757,7 +787,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const groupsById = new Map((competition.groups || []).map((group) => [group.id, group]));
         const fixtureUpdates = new Map<string, Partial<Fixture>>();
 
-        // Split fixtures into group stage and knockout
         const groupStageFixtures = competition.fixtures.filter(
           (f) => !f.stage || f.stage === 'Group'
         );
@@ -765,8 +794,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           (f) => f.stage && f.stage !== 'Group'
         );
 
-        // ── Phase 1: Schedule Group Stage ──
-        // Build per-group queues (preserving fixture order within each group)
         type QueueEntry = { fixtureId: string; duration: number; slack: number };
         type GroupQueue = { pitchPool: string[]; nextPitchIndex: number; fixtures: QueueEntry[] };
 
@@ -803,7 +830,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           groupQueues.get(groupKey)!.fixtures.push({ fixtureId: fixture.id, duration, slack });
         });
 
-        // Deal group fixtures across pitches
         const pitchCursorById = new Map(
           pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)])
         );
@@ -830,21 +856,16 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           });
         }
 
-        // ── Phase 2: Schedule Knockout Fixtures ──
         if (knockoutFixtures.length > 0) {
-          // Determine knockout pitch pool (all pitches used in group stage, or all pitches as fallback)
           const knockoutPitchPool = usedPitchIds.size > 0
             ? Array.from(usedPitchIds)
             : pitches.map((p) => p.id);
 
-          // Find the latest end time across ALL pitches after group stage
-          // This ensures no knockout starts before every group game (+ slack) has finished
           let groupStageEndTime = 0;
           for (const [, cursor] of pitchCursorById) {
             groupStageEndTime = Math.max(groupStageEndTime, cursor);
           }
 
-          // Group knockout fixtures by their dependency tier (preserving order within each tier)
           const fixturesByTier = new Map<number, { fixture: Fixture; duration: number; slack: number }[]>();
           knockoutFixtures.forEach((fixture) => {
             const { duration, slack } = getFixtureTimingConfig(fixture, groupsById);
@@ -855,22 +876,17 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             fixturesByTier.get(tier)!.push({ fixture, duration, slack });
           });
 
-          // Process tiers in order
           const sortedTiers = Array.from(fixturesByTier.keys()).sort((a, b) => a - b);
           let tierMinStartTime = groupStageEndTime;
 
           for (const tier of sortedTiers) {
             const tierFixtures = fixturesByTier.get(tier)!;
-
-            // Record natural cursor positions before forcing to tier minimum
-            // The gap between natural end and forced start becomes slackBefore
             const naturalCursorById = new Map<string, number>();
             for (const pitchId of knockoutPitchPool) {
               naturalCursorById.set(pitchId, pitchCursorById.get(pitchId) ?? 0);
               pitchCursorById.set(pitchId, Math.max(pitchCursorById.get(pitchId) ?? 0, tierMinStartTime));
             }
 
-            // Deal this tier's fixtures across the knockout pitch pool
             let nextPitchIndex = 0;
             let tierMaxEndTime = tierMinStartTime;
 
@@ -894,7 +910,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               tierMaxEndTime = Math.max(tierMaxEndTime, endTime);
             }
 
-            // Next tier can't start until this tier finishes (including slack)
             tierMinStartTime = tierMaxEndTime;
           }
         }
@@ -926,7 +941,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const reorderFixtureToPitch = (fixtureId: string, targetPitchId: string, targetIndex: number = -1) => {
-    // 1. Find the fixture and its competition
     let targetFixture: Fixture | undefined;
     let sourceCompId: string | undefined;
 
@@ -941,20 +955,17 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     if (!targetFixture || !sourceCompId) return;
 
-    // 2. Get all assigned fixtures for the target pitch (excluding the moving one)
     const pitchFixtures = competitions
       .flatMap(c => c.fixtures)
       .filter(f => f.pitchId === targetPitchId && f.id !== fixtureId)
       .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
 
-    // 3. Insert into the new position
     if (targetIndex >= 0 && targetIndex <= pitchFixtures.length) {
       pitchFixtures.splice(targetIndex, 0, targetFixture);
     } else {
       pitchFixtures.push(targetFixture);
     }
 
-    // 4. Recalculate times
     const pitch = pitches.find(p => p.id === targetPitchId);
     let currentTimeMinutes = 10 * 60; // Default 10:00
     if (pitch && pitch.startTime) {
@@ -962,21 +973,14 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       currentTimeMinutes = h * 60 + m;
     }
 
-    // Create a map of updates needed
-    const updates = new Map<string, Partial<Fixture>>(); // fixtureId -> updates
+    const updates = new Map<string, Partial<Fixture>>();
 
     pitchFixtures.forEach(f => {
       const hours = Math.floor(currentTimeMinutes / 60);
       const minutes = currentTimeMinutes % 60;
       const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-
-      // Find group to get slack? Or use default?
-      // Ideally we look up the group from the fixture's competition
-      // For simplicity, let's assume 5 min slack if not found, or keeping existing duration
-      // We need to look up the group again... this is heavy but necessary for correctness
-      // Optimization: Just use f.duration and hardcoded slack for now if we don't want to traverse everything
       const duration = f.duration || 20;
-      const slack = 5; // Default slack
+      const slack = 5;
 
       updates.set(f.id, {
         pitchId: targetPitchId,
@@ -986,7 +990,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       currentTimeMinutes += duration + slack;
     });
 
-    // 5. Apply updates
     setCompetitions(competitions.map(comp => {
       const needsUpdate = comp.fixtures.some(f => updates.has(f.id));
       if (!needsUpdate) return comp;
@@ -1005,7 +1008,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const batchUpdateFixtures = (updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[], shouldRecalculate = false) => {
     setCompetitions(prevCompetitions => {
-      // Create a map for faster lookup if needed, but array size is likely small enough
       const nextCompetitions = prevCompetitions.map(comp => {
         const compUpdates = updates.filter(u => u.competitionId === comp.id);
         if (compUpdates.length === 0) return comp;
@@ -1025,7 +1027,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
 
       if (shouldRecalculate) {
-         // Recalculate affected competitions
          const affectedCompetitionIds = new Set(updates.map(u => u.competitionId));
          const recalculated = nextCompetitions.map(comp => {
             if (affectedCompetitionIds.has(comp.id)) {
@@ -1044,8 +1045,12 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     <TournamentContext.Provider value={{
       competitions,
       pitches,
+      clubs,
       addCompetition,
       deleteCompetition,
+      addClub,
+      updateClub,
+      deleteClub,
       addTeam,
       updateTeam,
       deleteTeam,
@@ -1066,7 +1071,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       resetAllSchedules,
       reorderFixtureToPitch,
       updateCompetition,
-      batchUpdateFixtures
+      batchUpdateFixtures,
+      recalculateSchedule
     }}>
       {children}
     </TournamentContext.Provider>

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Index from "./pages/Index";
 import Schedule from "./pages/Schedule";
+import Clubs from "./pages/Clubs";
 import NotFound from "./pages/NotFound";
 import { TournamentProvider } from "@/context/TournamentContext";
 import SidebarLayout from "./components/SidebarLayout";
@@ -25,6 +26,7 @@ const App = () => (
             <Route element={<SidebarLayout />}>
               <Route path="/" element={<Index />} />
               <Route path="/schedule" element={<Schedule />} />
+              <Route path="/clubs" element={<Clubs />} />
               <Route path="/competition/:id" element={<Navigate to="groups" replace />} />
               <Route path="/competition/:id/groups" element={<CompetitionGroups />} />
               <Route path="/competition/:id/fixtures" element={<CompetitionFixtures />} />

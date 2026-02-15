@@ -7,6 +7,20 @@ export interface Group {
   primaryPitchId?: string;
 }
 
+export interface Club {
+  id: string;
+  name: string;
+  address?: string;
+  coordinates?: { lat: number; lng: number };
+  primaryColor?: string;
+  secondaryColor?: string;
+  abbreviation: string; // max 5 chars
+  code: string; // 2 chars
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+}
+
 export interface Team {
   id: string;
   name: string;
@@ -14,6 +28,8 @@ export interface Team {
   initials?: string;
   primaryColor?: string;
   secondaryColor?: string;
+  clubId?: string;
+  squadSize?: number;
 }
 
 export interface Fixture {
@@ -51,4 +67,5 @@ export interface Pitch {
 export interface TournamentData {
   competitions: Competition[];
   pitches: Pitch[];
+  clubs: Club[];
 }

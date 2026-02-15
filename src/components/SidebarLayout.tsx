@@ -21,7 +21,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useTournament } from "@/context/TournamentContext";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
-import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList } from "lucide-react";
+import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList, Shield } from "lucide-react";
 import { CompetitionBadge } from "@/components/CompetitionBadge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -81,6 +81,14 @@ export default function SidebarLayout() {
                   <Link to="/schedule">
                     <Calendar />
                     <span>Scheduler</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location.pathname === "/clubs"}>
+                  <Link to="/clubs">
+                    <Shield />
+                    <span>Clubs</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
