@@ -4,11 +4,13 @@ import { Club } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { MapPin, Phone, Mail, User, Plus, Pencil, Trash2, Shield } from 'lucide-react';
+import { MapPin, Phone, Mail, User, Plus, Pencil, Trash2, Shield, Wand2, Loader2, Key } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { searchClubInfo, processLogo } from '@/lib/clubSearch';
+import { useToast } from '@/hooks/use-toast';
 
 const DEFAULT_COLORS = [
     '#ef4444', // red-500
@@ -25,6 +27,50 @@ const DEFAULT_COLORS = [
     '#ffffff', // white
 ];
 
+const ApiKeyDialog = ({ 
+    open, 
+    onOpenChange, 
+    onSave,
+    initialKey
+}: { 
+    open: boolean; 
+    onOpenChange: (open: boolean) => void;
+    onSave: (key: string) => void;
+    initialKey?: string;
+}) => {
+    const [key, setKey] = useState(initialKey || '');
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Enter API Key</DialogTitle>
+                    <DialogDescription>
+                        To use Magic Search, you need an API key from OpenRouter or OpenAI.
+                        This key will be stored securely in your browser's local storage.
+                        (e.g., sk-or-v1... for OpenRouter or sk-proj... for OpenAI)
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                        <Label>API Key</Label>
+                        <Input 
+                            type="password" 
+                            value={key} 
+                            onChange={e => setKey(e.target.value)} 
+                            placeholder="sk-..." 
+                        />
+                    </div>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button onClick={() => onSave(key)} disabled={!key}>Save Key</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
 const ClubDialog = ({ 
     club, 
     onSave, 
@@ -34,11 +80,16 @@ const ClubDialog = ({
     onSave: (club: Partial<Club>) => void;
     trigger: React.ReactNode;
 }) => {
+    const { toast } = useToast();
     const [open, setOpen] = useState(false);
+    const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
+    const [isSearching, setIsSearching] = useState(false);
+
     const [name, setName] = useState(club?.name || '');
     const [address, setAddress] = useState(club?.address || '');
     const [abbreviation, setAbbreviation] = useState(club?.abbreviation || '');
     const [code, setCode] = useState(club?.code || '');
+    const [crest, setCrest] = useState(club?.crest || '');
     const [contactName, setContactName] = useState(club?.contactName || '');
     const [contactEmail, setContactEmail] = useState(club?.contactEmail || '');
     const [contactPhone, setContactPhone] = useState(club?.contactPhone || '');
@@ -57,6 +108,66 @@ const ClubDialog = ({
         }
     };
 
+    const handleMagicSearch = async () => {
+        const storedKey = localStorage.getItem('club_search_api_key');
+        if (!storedKey) {
+            setApiKeyDialogOpen(true);
+            return;
+        }
+
+        if (!name) {
+            toast({ title: "Please enter a club name first", variant: "destructive" });
+            return;
+        }
+
+        setIsSearching(true);
+        try {
+            const result = await searchClubInfo(name, storedKey);
+            
+            if (result.name) setName(result.name);
+            if (result.address) setAddress(result.address);
+            if (result.abbreviation) setAbbreviation(result.abbreviation);
+            if (result.code) setCode(result.code);
+            if (result.email) setContactEmail(result.email);
+            if (result.phone) setContactPhone(result.phone);
+            if (result.coordinates) {
+                setLat(result.coordinates.lat.toString());
+                setLng(result.coordinates.lng.toString());
+            }
+            if (result.primaryColor) setPrimaryColor(result.primaryColor);
+            if (result.secondaryColor) setSecondaryColor(result.secondaryColor);
+
+            if (result.logoUrl) {
+                try {
+                    const processedCrest = await processLogo(result.logoUrl);
+                    setCrest(processedCrest);
+                } catch (e) {
+                    console.error("Logo processing failed, using raw URL", e);
+                    setCrest(result.logoUrl);
+                }
+            }
+
+            toast({ title: "Club details found!", description: "Review and save changes." });
+        } catch (error: any) {
+            console.error(error);
+            if (error.message?.includes('401')) {
+                localStorage.removeItem('club_search_api_key');
+                toast({ title: "Invalid API Key", description: "Please enter a valid key.", variant: "destructive" });
+                setApiKeyDialogOpen(true);
+            } else {
+                toast({ title: "Search failed", description: error.message, variant: "destructive" });
+            }
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
+    const handleApiKeySave = (key: string) => {
+        localStorage.setItem('club_search_api_key', key);
+        setApiKeyDialogOpen(false);
+        handleMagicSearch();
+    };
+
     const handleSave = () => {
         const coordinates = (lat && lng) ? { lat: parseFloat(lat), lng: parseFloat(lng) } : undefined;
         
@@ -70,7 +181,8 @@ const ClubDialog = ({
             contactPhone,
             primaryColor,
             secondaryColor,
-            coordinates
+            coordinates,
+            crest
         });
         setOpen(false);
         if (!club) {
@@ -79,6 +191,7 @@ const ClubDialog = ({
             setAddress('');
             setAbbreviation('');
             setCode('');
+            setCrest('');
             setContactName('');
             setContactEmail('');
             setContactPhone('');
@@ -88,28 +201,78 @@ const ClubDialog = ({
     };
 
     return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                {trigger}
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                    <DialogTitle>{club ? 'Edit Club' : 'Add New Club'}</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-6 py-4">
-                    <div className="flex gap-4 items-start">
-                        <div className="w-24 h-24 rounded-lg flex items-center justify-center text-3xl font-bold border-2 shadow-sm shrink-0"
-                            style={{ backgroundColor: primaryColor, color: secondaryColor, borderColor: secondaryColor }}
-                        >
-                            {code || '??'}
-                        </div>
-                        <div className="flex-1 space-y-4">
-                             <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label>Club Name</Label>
-                                    <Input value={name} onChange={handleNameChange} placeholder="e.g. Arsenal FC" />
+        <>
+            <ApiKeyDialog 
+                open={apiKeyDialogOpen} 
+                onOpenChange={setApiKeyDialogOpen} 
+                onSave={handleApiKeySave} 
+                initialKey={localStorage.getItem('club_search_api_key') || ''} 
+            />
+            <Dialog open={open} onOpenChange={setOpen}>
+                <DialogTrigger asChild>
+                    {trigger}
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>{club ? 'Edit Club' : 'Add New Club'}</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-6 py-4">
+                        <div className="flex gap-4 items-start">
+                            {crest ? (
+                                <div className="w-24 h-24 rounded-lg flex items-center justify-center border-2 shadow-sm shrink-0 overflow-hidden bg-white relative group">
+                                    <img 
+                                        src={crest} 
+                                        alt="Crest" 
+                                        className="w-full h-full object-contain"
+                                        onError={(e) => {
+                                            // Fallback to placeholder if image fails to load
+                                            e.currentTarget.style.display = 'none';
+                                            e.currentTarget.parentElement?.classList.remove('bg-white');
+                                            e.currentTarget.parentElement?.classList.add('bg-muted');
+                                        }} 
+                                    />
+                                    <div 
+                                        className="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center cursor-pointer transition-opacity"
+                                        onClick={() => setCrest('')}
+                                        title="Remove Crest"
+                                    >
+                                        <Trash2 className="text-white h-6 w-6" />
+                                    </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-2">
+                            ) : (
+                                <div className="w-24 h-24 rounded-lg flex items-center justify-center text-3xl font-bold border-2 shadow-sm shrink-0"
+                                    style={{ backgroundColor: primaryColor, color: secondaryColor, borderColor: secondaryColor }}
+                                >
+                                    {code || '??'}
+                                </div>
+                            )}
+                            <div className="flex-1 space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Club Name</Label>
+                                        <div className="flex gap-2">
+                                            <Input value={name} onChange={handleNameChange} placeholder="e.g. Arsenal FC" />
+                                            <Button 
+                                                size="icon" 
+                                                variant="outline" 
+                                                onClick={handleMagicSearch}
+                                                disabled={isSearching || !name}
+                                                title="Magic Search: Auto-fill details"
+                                            >
+                                                {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                                            </Button>
+                                            <Button
+                                                size="icon"
+                                                variant="ghost"
+                                                onClick={() => setApiKeyDialogOpen(true)}
+                                                title="Update API Key"
+                                                className="text-muted-foreground hover:text-foreground"
+                                            >
+                                                <Key className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
                                     <div className="space-y-2">
                                         <Label>Abbrev (5)</Label>
                                         <Input value={abbreviation} maxLength={5} onChange={e => setAbbreviation(e.target.value.toUpperCase())} placeholder="ARSNL" />
@@ -214,6 +377,7 @@ const ClubDialog = ({
                 </DialogFooter>
             </DialogContent>
         </Dialog>
+        </>
     );
 };
 
@@ -280,10 +444,29 @@ const Clubs = () => {
                                     {filteredClubs.map(club => (
                                         <TableRow key={club.id}>
                                             <TableCell>
-                                                <div className="w-10 h-10 rounded flex items-center justify-center font-bold text-xs border shadow-sm"
-                                                    style={{ backgroundColor: club.primaryColor || '#000', color: club.secondaryColor || '#fff' }}
+                                                <div className="w-10 h-10 rounded flex items-center justify-center font-bold text-xs border shadow-sm overflow-hidden"
+                                                    style={{ backgroundColor: club.crest ? 'white' : (club.primaryColor || '#000'), color: club.secondaryColor || '#fff' }}
                                                 >
-                                                    {club.code}
+                                                    {club.crest ? (
+                                                        <img 
+                                                            src={club.crest} 
+                                                            alt={club.code} 
+                                                            className="w-full h-full object-contain" 
+                                                            onError={(e) => {
+                                                                e.currentTarget.style.display = 'none';
+                                                                // Show code instead by manipulating DOM or state? 
+                                                                // Simpler: just hide image and let parent background show.
+                                                                // Ideally we would revert to showing text, but for now just hiding broken image is better than showing broken icon.
+                                                                if (e.currentTarget.parentElement) {
+                                                                    e.currentTarget.parentElement.style.backgroundColor = club.primaryColor || '#000';
+                                                                    e.currentTarget.parentElement.innerText = club.code;
+                                                                    e.currentTarget.parentElement.style.color = club.secondaryColor || '#fff';
+                                                                }
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        club.code
+                                                    )}
                                                 </div>
                                             </TableCell>
                                             <TableCell className="font-medium">

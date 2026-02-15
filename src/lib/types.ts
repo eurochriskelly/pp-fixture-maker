@@ -16,6 +16,7 @@ export interface Club {
   secondaryColor?: string;
   abbreviation: string; // max 5 chars
   code: string; // 2 chars
+  crest?: string; // base64 or URL
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
