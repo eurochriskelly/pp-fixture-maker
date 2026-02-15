@@ -1787,7 +1787,7 @@ const Schedule = () => {
     <div className="container mx-auto p-0 h-full flex flex-col relative">
       {portalTarget && createPortal(SidebarContentPortal, portalTarget)}
 
-      <div className="relative h-full w-full overflow-hidden rounded-lg bg-white shadow-sm border">
+      <div className="absolute inset-0 flex flex-col min-h-0 border rounded-lg bg-white overflow-hidden shadow-sm mb-0">
           {/* Header: Fixed top */}
           <div className="absolute top-0 left-0 right-0 h-12 border-b bg-slate-50 z-20 flex">
             <div className="w-16 flex-none border-r p-2 text-xs font-semibold text-center text-muted-foreground flex items-center justify-center">Time</div>
@@ -2053,6 +2053,8 @@ const Schedule = () => {
                         const heightMatch = duration * PIXELS_PER_MINUTE;
                         const heightSlack = slack * PIXELS_PER_MINUTE;
 
+                        const hasOverrides = fixture.duration !== undefined || fixture.slack !== undefined;
+
                         if (top < 0 && top + heightSlackBefore + heightMatch + heightSlack < 0) return null;
 
                         return (
@@ -2085,6 +2087,7 @@ const Schedule = () => {
                             }}
                             title={`${fixture.startTime} - ${comp?.name} - ${fixture.stage || 'Group'} - ${homeDisplay} vs ${awayDisplay}${teamConflictFixtureIds.has(fixture.id) ? ' ⚠ Team time conflict' : ''}`}
                           >
+                            {/* ... (markers) ... */}
                             {dropTargetFixtureId === fixture.id && (
                               <div className="absolute top-0.5 right-5 rounded bg-amber-500/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
                                 Swap here
@@ -2135,7 +2138,8 @@ const Schedule = () => {
                                   {fixture.matchId}
                                 </div>
                               )}
-                              <div className={cn('font-bold truncate', isKnockout ? 'text-purple-900' : 'text-blue-900')}>
+                              <div className={cn('font-bold truncate flex items-center gap-1', isKnockout ? 'text-purple-900' : 'text-blue-900')}>
+                                {hasOverrides && <Clock className="w-3 h-3 text-amber-600" />}
                                 {fixture.startTime} {isKnockout && `(${fixture.stage})`}
                               </div>
                               <div className={cn('truncate font-medium leading-tight', isKnockout ? 'text-purple-800' : 'text-blue-800')}>
