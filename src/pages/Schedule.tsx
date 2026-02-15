@@ -378,6 +378,63 @@ const Schedule = () => {
     [effectivePitches]
   );
 
+  // Detect team time conflicts: fixtures where a team plays two matches at overlapping times
+  const teamConflictFixtureIds = React.useMemo(() => {
+    const conflictIds = new Set<string>();
+
+    // Collect all scheduled fixtures with their time intervals
+    type ScheduledFixture = {
+      fixtureId: string;
+      teamIds: string[];
+      startMin: number;
+      endMin: number;
+    };
+    const scheduled: ScheduledFixture[] = [];
+
+    competitions.forEach((comp) => {
+      comp.fixtures.forEach((fixture) => {
+        if (!fixture.pitchId || !fixture.startTime) return;
+        const teams: string[] = [];
+        if (fixture.homeTeamId && fixture.homeTeamId !== 'TBD') teams.push(fixture.homeTeamId);
+        if (fixture.awayTeamId && fixture.awayTeamId !== 'TBD') teams.push(fixture.awayTeamId);
+        if (teams.length === 0) return;
+
+        scheduled.push({
+          fixtureId: fixture.id,
+          teamIds: teams,
+          startMin: minutesFromMidnight(fixture.startTime),
+          endMin: minutesFromMidnight(fixture.startTime) + (fixture.duration || 20),
+        });
+      });
+    });
+
+    // Build team → fixtures index
+    const fixturesByTeam = new Map<string, ScheduledFixture[]>();
+    scheduled.forEach((sf) => {
+      sf.teamIds.forEach((teamId) => {
+        if (!fixturesByTeam.has(teamId)) fixturesByTeam.set(teamId, []);
+        fixturesByTeam.get(teamId)!.push(sf);
+      });
+    });
+
+    // Check for overlaps within each team's fixtures
+    fixturesByTeam.forEach((fixtures) => {
+      if (fixtures.length < 2) return;
+      for (let i = 0; i < fixtures.length; i++) {
+        for (let j = i + 1; j < fixtures.length; j++) {
+          const a = fixtures[i];
+          const b = fixtures[j];
+          if (a.startMin < b.endMin && a.endMin > b.startMin) {
+            conflictIds.add(a.fixtureId);
+            conflictIds.add(b.fixtureId);
+          }
+        }
+      }
+    });
+
+    return conflictIds;
+  }, [competitions]);
+
   const commitPitchDraft = React.useCallback(
     (pitchId: string, fields: Array<'name' | 'startTime' | 'endTime'>) => {
       const original = pitches.find((pitch) => pitch.id === pitchId);
@@ -1983,18 +2040,19 @@ const Schedule = () => {
                               recentlyChangedIds.includes(fixture.id) && 'fixture-change-fade',
                               recentlyPrimaryChangedId === fixture.id && 'fixture-change-primary',
                               dropTargetFixtureId === fixture.id && 'ring-2 ring-amber-500 shadow-md scale-[1.01]',
-                              recentlySwappedIds.includes(fixture.id) && 'ring-2 ring-emerald-500'
+                              recentlySwappedIds.includes(fixture.id) && 'ring-2 ring-emerald-500',
+                              teamConflictFixtureIds.has(fixture.id) && 'ring-2 ring-red-500'
                             )}
                             style={{
                               top,
                               height: heightSlackBefore + heightMatch + heightSlack,
                               borderLeft: `0.6rem solid ${comp?.color || '#1e293b'}`,
-                              borderTop: '1px solid #e2e8f0',
-                              borderRight: '1px solid #e2e8f0',
-                              borderBottom: '1px solid #e2e8f0',
+                              borderTop: teamConflictFixtureIds.has(fixture.id) ? '1px solid #ef4444' : '1px solid #e2e8f0',
+                              borderRight: teamConflictFixtureIds.has(fixture.id) ? '1px solid #ef4444' : '1px solid #e2e8f0',
+                              borderBottom: teamConflictFixtureIds.has(fixture.id) ? '1px solid #ef4444' : '1px solid #e2e8f0',
                               opacity: isKnockout ? 1 : undefined
                             }}
-                            title={`${fixture.startTime} - ${comp?.name} - ${fixture.stage || 'Group'} - ${homeDisplay} vs ${awayDisplay}`}
+                            title={`${fixture.startTime} - ${comp?.name} - ${fixture.stage || 'Group'} - ${homeDisplay} vs ${awayDisplay}${teamConflictFixtureIds.has(fixture.id) ? ' ⚠ Team time conflict' : ''}`}
                           >
                             {dropTargetFixtureId === fixture.id && (
                               <div className="absolute top-0.5 right-5 rounded bg-amber-500/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
@@ -2009,6 +2067,11 @@ const Schedule = () => {
                             {recentlyPrimaryChangedId === fixture.id && (
                               <div className="absolute top-0.5 left-0.5 rounded bg-amber-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
                                 Moved
+                              </div>
+                            )}
+                            {teamConflictFixtureIds.has(fixture.id) && (
+                              <div className="absolute top-0.5 right-0.5 rounded bg-red-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none z-10">
+                                ⚠ Clash
                               </div>
                             )}
 
