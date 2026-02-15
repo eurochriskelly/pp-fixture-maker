@@ -2,13 +2,10 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { useTournament } from '@/context/TournamentContext';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Clock, Plus, X, ChevronDown, ChevronRight, RotateCcw, Calendar, Users, GripVertical, ArrowLeft } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { v4 as uuidv4 } from 'uuid';
+import { Clock, Plus, X, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
 import { getFixtureSlack, minutesFromMidnight, timeFromMinutes } from '@/utils/scheduleUtils';
 import { Competition, Fixture, Group, Pitch, PitchBreakItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -26,6 +23,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 import { FixtureDetailsPanel } from '@/components/FixtureDetailsPanel';
+import { v4 as uuidv4 } from 'uuid';
 
 const PIXELS_PER_MINUTE = 2;
 const VIEW_START_HOUR = 8;
@@ -42,6 +40,7 @@ const DEFAULT_BREAK_DURATION = 15;
 const MIN_BREAK_DURATION = 5;
 const PITCH_BREAKS_STORAGE_KEY = 'tournament_pitch_breaks_v1';
 const BREAK_PATTERN_DARK = 'repeating-linear-gradient(45deg, #1f2937, #1f2937 4px, #111827 4px, #111827 8px)';
+const DRAWER_HEIGHT_PX = 280; // Fixed height for the details drawer
 
 type PitchFixtureItem = {
   competitionId: string;
@@ -229,7 +228,6 @@ const Schedule = () => {
     batchUpdateFixtures,
     updateGroup,
   } = useTournament();
-  const navigate = useNavigate();
 
   const [pitchDrafts, setPitchDrafts] = React.useState<Record<string, PitchDraft>>({});
   const pitchDraftsRef = React.useRef<Record<string, PitchDraft>>({});
@@ -275,9 +273,6 @@ const Schedule = () => {
   const changeFeedbackTimeoutRef = React.useRef<number | null>(null);
   const swapFeedbackTimeoutRef = React.useRef<number | null>(null);
   const [openCompetitionIds, setOpenCompetitionIds] = React.useState<string[]>([]);
-  const [competitionPanelState, setCompetitionPanelState] = React.useState<
-    Record<string, { groups: boolean; fixtures: boolean }>
-  >({});
   
   // Selection state
   const [selectedFixtureId, setSelectedFixtureId] = React.useState<string | null>(null);
@@ -349,16 +344,6 @@ const Schedule = () => {
       const matches =
         prev.length === next.length && next.every((id) => prev.includes(id));
       if (matches) return prev;
-      return next;
-    });
-  }, [competitions]);
-
-  React.useEffect(() => {
-    setCompetitionPanelState((prev) => {
-      const next: Record<string, { groups: boolean; fixtures: boolean }> = {};
-      competitions.forEach((comp) => {
-        next[comp.id] = prev[comp.id] ?? { groups: false, fixtures: false };
-      });
       return next;
     });
   }, [competitions]);
@@ -1802,13 +1787,13 @@ const Schedule = () => {
     <div className="container mx-auto p-0 h-full flex flex-col relative">
       {portalTarget && createPortal(SidebarContentPortal, portalTarget)}
 
-      <div className="flex-1 flex flex-col min-h-0 border rounded-lg bg-white overflow-hidden shadow-sm mb-0">
-          {/* Header */}
-          <div className="flex border-b bg-slate-50 sticky top-0 z-20">
-            <div className="w-16 flex-none border-r p-2 text-xs font-semibold text-center text-muted-foreground">Time</div>
+      <div className="relative h-full w-full overflow-hidden rounded-lg bg-white shadow-sm border">
+          {/* Header: Fixed top */}
+          <div className="absolute top-0 left-0 right-0 h-12 border-b bg-slate-50 z-20 flex">
+            <div className="w-16 flex-none border-r p-2 text-xs font-semibold text-center text-muted-foreground flex items-center justify-center">Time</div>
             {effectivePitches.map(pitch => (
-              <div key={pitch.id} className="flex-1 border-r last:border-r-0 p-2">
-                <div className="flex items-center gap-1">
+              <div key={pitch.id} className="flex-1 border-r last:border-r-0 p-2 flex items-center">
+                <div className="flex items-center gap-1 w-full">
                   <Input
                     value={pitch.name}
                     onChange={(event) => updatePitchDraftField(pitch.id, 'name', event.target.value)}
@@ -1836,11 +1821,18 @@ const Schedule = () => {
           </div>
 
           {/* Scrollable Grid */}
-          <div ref={gridScrollRef} className="flex-1 overflow-y-auto relative bg-slate-50/30">
+          <div 
+            ref={gridScrollRef} 
+            className="absolute left-0 right-0 overflow-y-auto bg-slate-50/30 transition-[bottom] duration-300 ease-in-out"
+            style={{ 
+              top: '3rem', 
+              bottom: selectedFixtureId ? `${DRAWER_HEIGHT_PX}px` : '0' 
+            }}
+          >
             <div className="flex relative" style={{ height: gridHeight }}>
 
               {/* Time Axis */}
-              <div className="w-16 flex-none border-r bg-white z-10 sticky left-0">
+              <div className="w-16 flex-none border-r bg-white z-10 sticky left-0 min-h-full">
                 {timeLabels.map((time, i) => (
                   <div
                     key={time}
@@ -1895,7 +1887,7 @@ const Schedule = () => {
                 return (
                   <div
                     key={pitch.id}
-                    className="flex-1 border-r last:border-r-0 relative"
+                    className="flex-1 border-r last:border-r-0 relative min-h-full"
                     onDragOver={(e) => {
                       onDragOver(e);
                       if (e.target === e.currentTarget) {
@@ -2275,7 +2267,10 @@ const Schedule = () => {
         </div>
       
       {selectedFixtureId && (
-        <div className="h-[20%] min-h-[180px] border-t bg-background shadow-inner z-40">
+        <div 
+          className="absolute bottom-0 left-0 right-0 border-t bg-background shadow-inner z-40 transition-transform duration-300 ease-in-out"
+          style={{ height: `${DRAWER_HEIGHT_PX}px` }}
+        >
           <FixtureDetailsPanel
             fixtureId={selectedFixtureId}
             onClose={() => setSelectedFixtureId(null)}
