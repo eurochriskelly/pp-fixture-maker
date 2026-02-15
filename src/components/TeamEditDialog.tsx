@@ -6,9 +6,20 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import { Pencil } from 'lucide-react';
+import { Pencil, Trash2 } from 'lucide-react';
 
 interface TeamEditDialogProps {
     competitionId: string;
@@ -32,7 +43,7 @@ const PRESET_COLORS = [
 ];
 
 export const TeamEditDialog: React.FC<TeamEditDialogProps> = ({ competitionId, team, children }) => {
-    const { updateTeam } = useTournament();
+    const { updateTeam, deleteTeam } = useTournament();
     const [open, setOpen] = useState(false);
 
     const [name, setName] = useState(team.name);
@@ -156,7 +167,37 @@ export const TeamEditDialog: React.FC<TeamEditDialogProps> = ({ competitionId, t
                             </div>
                         </div>
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className="flex items-center justify-between sm:justify-between gap-2">
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm" className="gap-2">
+                                    <Trash2 className="h-4 w-4" />
+                                    Delete Team
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This action cannot be undone. This will permanently delete the team
+                                        <span className="font-semibold"> {team.name} </span>
+                                        and remove it from any groups and fixtures.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                        onClick={() => {
+                                            deleteTeam(competitionId, team.id);
+                                            setOpen(false);
+                                        }}
+                                    >
+                                        Delete
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
                         <Button onClick={handleSave}>Save changes</Button>
                     </DialogFooter>
                 </DialogContent>
