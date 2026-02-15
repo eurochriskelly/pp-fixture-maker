@@ -74,10 +74,14 @@ export const TeamBadge: React.FC<{ team?: Team }> = ({ team }) => {
     <div className="rounded-md bg-black p-[1px] flex items-center justify-center shadow-sm shrink-0">
       <div className="rounded-[6px] bg-white p-[1px] flex items-center justify-center">
         <div
-          className="w-10 h-10 rounded-[4px] flex items-center justify-center text-[12px] font-black uppercase leading-none"
+          className="w-10 h-10 rounded-[4px] flex items-center justify-center text-[12px] font-black uppercase leading-none overflow-hidden relative"
           style={{ backgroundColor: bg, color: fg }}
         >
-          {initials}
+          {team?.crest ? (
+             <img src={team.crest} alt={team.name} className="w-full h-full object-contain p-0.5" />
+          ) : (
+             initials
+          )}
         </div>
       </div>
     </div>

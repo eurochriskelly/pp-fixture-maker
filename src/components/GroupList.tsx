@@ -161,13 +161,17 @@ export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, tea
                                         <div className="flex-1 flex items-center justify-between group/team gap-2">
                                             <div className="flex items-center gap-2">
                                                 <div
-                                                    className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold border shadow-sm"
+                                                    className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold border shadow-sm overflow-hidden relative"
                                                     style={{
                                                         backgroundColor: team.primaryColor || '#f1f5f9',
                                                         color: team.secondaryColor || '#64748b'
                                                     }}
                                                 >
-                                                    {team.initials || team.name.substring(0, 2).toUpperCase()}
+                                                    {team.crest ? (
+                                                        <img src={team.crest} alt={team.name} className="w-full h-full object-contain p-0.5" />
+                                                    ) : (
+                                                        team.initials || team.name.substring(0, 2).toUpperCase()
+                                                    )}
                                                 </div>
                                                 <span className="text-sm font-medium">{team.name}</span>
                                             </div>

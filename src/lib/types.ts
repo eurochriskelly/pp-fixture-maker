@@ -31,6 +31,10 @@ export interface Team {
   secondaryColor?: string;
   clubId?: string;
   squadSize?: number;
+  secondaryClubIds?: string[];
+  clubContributions?: Record<string, number>; // clubId -> count
+  overrideLeadClubId?: string;
+  crest?: string; // Optional custom crest
 }
 
 export interface Fixture {
