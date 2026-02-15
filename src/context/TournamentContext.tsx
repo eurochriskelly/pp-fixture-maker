@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Competition, Fixture, Pitch, Team, Group, Club } from '@/lib/types';
+import { Competition, Fixture, Pitch, Team, Group, Club, PitchBreakItem } from '@/lib/types';
 import { v4 as uuidv4 } from 'uuid';
 import { getGroupPitchIds } from '@/lib/groupPitches';
 import { generateMatchIdsForCompetition } from '@/utils/matchIdUtils';
@@ -27,8 +27,8 @@ interface TournamentContextType {
   generateFixtures: (competitionId: string, targetGroupId?: string) => void;
   addManualFixture: (competitionId: string, fixture: Omit<Fixture, 'id' | 'competitionId'>) => void;
   addFixtures: (competitionId: string, fixtures: Omit<Fixture, 'id' | 'competitionId'>[]) => void;
-  updateFixture: (competitionId: string, fixtureId: string, updates: Partial<Fixture>, shouldRecalculate?: boolean) => void;
-  deleteFixture: (competitionId: string, fixtureId: string, shouldRecalculate?: boolean) => void;
+  updateFixture: (competitionId: string, fixtureId: string, updates: Partial<Fixture>, shouldRecalculate?: boolean, pitchBreaks?: PitchBreakItem[]) => void;
+  deleteFixture: (competitionId: string, fixtureId: string, shouldRecalculate?: boolean, pitchBreaks?: PitchBreakItem[]) => void;
 
   // Group Actions
   createGroup: (competitionId: string, name: string) => void;
@@ -42,13 +42,13 @@ interface TournamentContextType {
   deletePitch: (id: string) => void;
 
   // Scheduling
-  autoScheduleMatches: (competitionId: string) => void;
+  autoScheduleMatches: (competitionId: string, pitchBreaks?: PitchBreakItem[]) => void;
   resetAllSchedules: () => void;
   updateGroup: (competitionId: string, groupId: string, updates: Partial<Group>) => void;
   reorderFixtureToPitch: (fixtureId: string, targetPitchId: string, targetIndex?: number) => void;
   updateCompetition: (id: string, updates: Partial<Competition>) => void;
-  batchUpdateFixtures: (updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[], shouldRecalculate?: boolean) => void;
-  recalculateSchedule: (competitionId: string) => void;
+  batchUpdateFixtures: (updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[], shouldRecalculate?: boolean, pitchBreaks?: PitchBreakItem[]) => void;
+  recalculateSchedule: (competitionId: string, pitchBreaks?: PitchBreakItem[]) => void;
 }
 
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
@@ -466,7 +466,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
   };
 
-  const updateFixture = (competitionId: string, fixtureId: string, updates: Partial<Fixture>, shouldRecalculate = false) => {
+  const updateFixture = (competitionId: string, fixtureId: string, updates: Partial<Fixture>, shouldRecalculate = false, pitchBreaks: PitchBreakItem[] = []) => {
     setCompetitions(competitions => {
       const nextCompetitions = competitions.map(comp => {
         if (comp.id === competitionId) {
@@ -482,18 +482,18 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (shouldRecalculate) {
         const recalculated = nextCompetitions.map(comp => {
           if (comp.id === competitionId) {
-            return recalculateCompetitionSchedule(comp);
+            return recalculateCompetitionSchedule(comp, pitchBreaks);
           }
           return comp;
         });
-        return enforceNoPitchOverlaps(recalculated);
+        return enforceNoPitchOverlaps(recalculated, pitchBreaks);
       }
 
       return nextCompetitions;
     });
   };
 
-  const deleteFixture = (competitionId: string, fixtureId: string, shouldRecalculate = false) => {
+  const deleteFixture = (competitionId: string, fixtureId: string, shouldRecalculate = false, pitchBreaks: PitchBreakItem[] = []) => {
     setCompetitions(competitions => {
       const nextCompetitions = competitions.map(comp => {
         if (comp.id === competitionId) {
@@ -509,11 +509,11 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (shouldRecalculate) {
         const recalculated = nextCompetitions.map(comp => {
           if (comp.id === competitionId) {
-            return recalculateCompetitionSchedule(comp);
+            return recalculateCompetitionSchedule(comp, pitchBreaks);
           }
           return comp;
         });
-        return enforceNoPitchOverlaps(recalculated);
+        return enforceNoPitchOverlaps(recalculated, pitchBreaks);
       }
 
       return nextCompetitions;
@@ -585,7 +585,44 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   };
 
-  const enforceNoPitchOverlaps = (competitionList: Competition[]): Competition[] => {
+  /** Given a proposed start time and fixture duration, advance past any overlapping breaks on that pitch. */
+  const advancePastBreaks = (
+    proposedStart: number,
+    duration: number,
+    breaksForPitch: { start: number; end: number }[]
+  ): number => {
+    let start = proposedStart;
+    // Iterate until we find a slot that doesn't overlap any break
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const br of breaksForPitch) {
+        const fixtureEnd = start + duration;
+        // Overlap if fixture starts before break ends AND fixture ends after break starts
+        if (start < br.end && fixtureEnd > br.start) {
+          start = br.end;
+          changed = true;
+        }
+      }
+    }
+    return start;
+  };
+
+  /** Build a lookup of break intervals (in minutes) per pitch. */
+  const buildBreakIntervalsByPitch = (
+    pitchBreaks: PitchBreakItem[]
+  ): Map<string, { start: number; end: number }[]> => {
+    const map = new Map<string, { start: number; end: number }[]>();
+    for (const br of pitchBreaks) {
+      const start = parseTimeToMinutes(br.startTime);
+      const end = start + (br.duration || 0);
+      if (!map.has(br.pitchId)) map.set(br.pitchId, []);
+      map.get(br.pitchId)!.push({ start, end });
+    }
+    return map;
+  };
+
+  const enforceNoPitchOverlaps = (competitionList: Competition[], pitchBreaks: PitchBreakItem[] = []): Competition[] => {
     type PitchFixtureRef = {
       competitionId: string;
       fixtureId: string;
@@ -631,10 +668,12 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     const updatesByCompetitionId = new Map<string, Map<string, Partial<Fixture>>>();
+    const breakIntervalsByPitch = buildBreakIntervalsByPitch(pitchBreaks);
 
     fixturesByPitch.forEach((pitchFixtures, pitchId) => {
       const pitchStart = pitchStartById.get(pitchId) ?? 10 * 60;
       let cursor = pitchStart;
+      const breaksForPitch = breakIntervalsByPitch.get(pitchId) || [];
 
       pitchFixtures.sort((a, b) => {
         if (a.requestedStart !== b.requestedStart) {
@@ -646,7 +685,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       pitchFixtures.forEach((item) => {
         const effectiveEarliest = cursor + item.slackBefore;
-        const startMinutes = Math.max(effectiveEarliest, item.requestedStart);
+        let startMinutes = Math.max(effectiveEarliest, item.requestedStart);
+        startMinutes = advancePastBreaks(startMinutes, item.duration, breaksForPitch);
         const updatesForCompetition =
           updatesByCompetitionId.get(item.competitionId) || new Map<string, Partial<Fixture>>();
 
@@ -673,7 +713,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   };
 
-  const recalculateCompetitionSchedule = (competition: Competition): Competition => {
+  const recalculateCompetitionSchedule = (competition: Competition, pitchBreaks: PitchBreakItem[] = []): Competition => {
     const KNOCKOUT_TIER: Record<string, number> = {
       'Round of 16': 0,
       'Quarter-Final': 1,
@@ -685,6 +725,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const pitchStartById = new Map(pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)]));
     const fixtureUpdates = new Map<string, Partial<Fixture>>();
     const pitchCursorById = new Map(pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)]));
+    const breakIntervalsByPitch = buildBreakIntervalsByPitch(pitchBreaks);
 
     const getStartTime = (f: Fixture) => (f.startTime ? parseTimeToMinutes(f.startTime) : undefined);
 
@@ -703,10 +744,11 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       fixtures.sort((a, b) => (getStartTime(a) || 0) - (getStartTime(b) || 0));
 
       let cursor = pitchStartById.get(pitchId) || 0;
+      const breaksForPitch = breakIntervalsByPitch.get(pitchId) || [];
 
       for (const fixture of fixtures) {
         const { duration, slack } = getFixtureTimingConfig(fixture, groupsById);
-        const start = cursor;
+        const start = advancePastBreaks(cursor, duration, breaksForPitch);
         fixtureUpdates.set(fixture.id, { startTime: toTimeString(start), duration });
         cursor = start + duration + slack;
         pitchCursorById.set(pitchId, cursor);
@@ -743,10 +785,12 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         fixtures.sort((a, b) => (getStartTime(a) || 0) - (getStartTime(b) || 0));
 
         let cursor = pitchCursorById.get(pitchId) || 0;
+        const breaksForPitch = breakIntervalsByPitch.get(pitchId) || [];
 
         for (const fixture of fixtures) {
           const { duration, slack } = getFixtureTimingConfig(fixture, groupsById);
-          const start = Math.max(cursor, tierMinStartTime);
+          let start = Math.max(cursor, tierMinStartTime);
+          start = advancePastBreaks(start, duration, breaksForPitch);
           const slackBefore = Math.max(0, start - cursor);
 
           fixtureUpdates.set(fixture.id, { 
@@ -774,17 +818,17 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   };
 
-  const recalculateSchedule = (competitionId: string) => {
+  const recalculateSchedule = (competitionId: string, pitchBreaks: PitchBreakItem[] = []) => {
     setCompetitions((prevCompetitions) => {
       const scheduledCompetitions = prevCompetitions.map((competition) => {
         if (competition.id !== competitionId) return competition;
-        return recalculateCompetitionSchedule(competition);
+        return recalculateCompetitionSchedule(competition, pitchBreaks);
       });
-      return enforceNoPitchOverlaps(scheduledCompetitions);
+      return enforceNoPitchOverlaps(scheduledCompetitions, pitchBreaks);
     });
   };
 
-  const autoScheduleMatches = (competitionId: string) => {
+  const autoScheduleMatches = (competitionId: string, pitchBreaks: PitchBreakItem[] = []) => {
     const KNOCKOUT_TIER: Record<string, number> = {
       'Round of 16': 0,
       'Quarter-Final': 1,
@@ -853,6 +897,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const pitchCursorById = new Map(
           pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)])
         );
+        const breakIntervals = buildBreakIntervalsByPitch(pitchBreaks);
         let pending = true;
 
         while (pending) {
@@ -866,7 +911,9 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             const pitchId = queue.pitchPool[queue.nextPitchIndex % queue.pitchPool.length];
             queue.nextPitchIndex += 1;
 
-            const cursor = pitchCursorById.get(pitchId) ?? (pitchStartById.get(pitchId) ?? 10 * 60);
+            const rawCursor = pitchCursorById.get(pitchId) ?? (pitchStartById.get(pitchId) ?? 10 * 60);
+            const breaksForPitch = breakIntervals.get(pitchId) || [];
+            const cursor = advancePastBreaks(rawCursor, entry.duration, breaksForPitch);
             fixtureUpdates.set(entry.fixtureId, {
               pitchId,
               startTime: toTimeString(cursor),
@@ -914,7 +961,9 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               const pitchId = knockoutPitchPool[nextPitchIndex % knockoutPitchPool.length];
               nextPitchIndex += 1;
 
-              const cursor = pitchCursorById.get(pitchId) ?? tierMinStartTime;
+              const rawCursor = pitchCursorById.get(pitchId) ?? tierMinStartTime;
+              const breaksForPitch = breakIntervals.get(pitchId) || [];
+              const cursor = advancePastBreaks(rawCursor, entry.duration, breaksForPitch);
               const naturalEnd = naturalCursorById.get(pitchId) ?? 0;
               const slackBefore = Math.max(0, cursor - naturalEnd);
 
@@ -944,7 +993,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
 
       const withMatchIds = scheduledCompetitions.map(comp => withRegeneratedMatchIds(comp));
-      return enforceNoPitchOverlaps(withMatchIds);
+      return enforceNoPitchOverlaps(withMatchIds, pitchBreaks);
     });
   };
 
@@ -1027,7 +1076,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
   };
 
-  const batchUpdateFixtures = (updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[], shouldRecalculate = false) => {
+  const batchUpdateFixtures = (updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[], shouldRecalculate = false, pitchBreaks: PitchBreakItem[] = []) => {
     setCompetitions(prevCompetitions => {
       const nextCompetitions = prevCompetitions.map(comp => {
         const compUpdates = updates.filter(u => u.competitionId === comp.id);
@@ -1053,11 +1102,11 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
          const affectedCompetitionIds = new Set(updates.map(u => u.competitionId));
          const recalculated = nextCompetitions.map(comp => {
             if (affectedCompetitionIds.has(comp.id)) {
-               return recalculateCompetitionSchedule(comp);
+               return recalculateCompetitionSchedule(comp, pitchBreaks);
             }
             return comp;
          });
-         return enforceNoPitchOverlaps(recalculated);
+         return enforceNoPitchOverlaps(recalculated, pitchBreaks);
       }
 
       return nextCompetitions;

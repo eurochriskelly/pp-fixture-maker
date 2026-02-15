@@ -10,7 +10,7 @@ import { Clock, Plus, X, ChevronDown, ChevronRight, RotateCcw, Calendar, Users, 
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { getFixtureSlack, minutesFromMidnight, timeFromMinutes } from '@/utils/scheduleUtils';
-import { Competition, Fixture, Group, Pitch } from '@/lib/types';
+import { Competition, Fixture, Group, Pitch, PitchBreakItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { getGroupPitchIds } from '@/lib/groupPitches';
 import { createGroupColorMap, getGroupColorFromMap } from '@/lib/groupColors';
@@ -46,14 +46,6 @@ type PitchFixtureItem = {
   competitionId: string;
   groups: Group[];
   fixture: Fixture;
-};
-
-type PitchBreakItem = {
-  id: string;
-  pitchId: string;
-  startTime: string;
-  duration: number;
-  label: string;
 };
 
 type PitchTimelineItem =
@@ -564,7 +556,7 @@ const Schedule = () => {
   };
 
   const handleAutoSchedule = () => {
-    competitions.forEach(c => autoScheduleMatches(c.id));
+    competitions.forEach(c => autoScheduleMatches(c.id, pitchBreaks));
     window.setTimeout(() => {
       setPendingAutoScheduleReflow(true);
     }, 0);
@@ -581,7 +573,7 @@ const Schedule = () => {
     updateFixture(competitionId, fixtureId, {
       pitchId,
       startTime: time
-    }, true);
+    }, true, pitchBreaks);
   };
 
   const handleUnassign = (fixtureId: string) => {
@@ -590,7 +582,7 @@ const Schedule = () => {
       updateFixture(comp.id, fixtureId, {
         pitchId: undefined,
         startTime: undefined
-      }, true);
+      }, true, pitchBreaks);
     }
   };
 
@@ -1058,17 +1050,19 @@ const Schedule = () => {
   };
 
   const applyPitchTimelineUpdates = (updates: { fixtureUpdates: FixtureBatchUpdate[]; breakUpdates: BreakBatchUpdate[] }) => {
-    if (updates.fixtureUpdates.length > 0) {
-      batchUpdateFixtures(updates.fixtureUpdates, true);
-    }
-
+    // Apply break updates first so pitchBreaks is current when batchUpdateFixtures runs
+    let currentBreaks = pitchBreaks;
     if (updates.breakUpdates.length > 0) {
       const breakUpdateMap = new Map(updates.breakUpdates.map((update) => [update.breakId, update.updates]));
-      setPitchBreaks((current) =>
-        current.map((pitchBreak) =>
-          breakUpdateMap.has(pitchBreak.id) ? { ...pitchBreak, ...breakUpdateMap.get(pitchBreak.id) } : pitchBreak
-        )
+      const nextBreaks = pitchBreaks.map((pitchBreak) =>
+        breakUpdateMap.has(pitchBreak.id) ? { ...pitchBreak, ...breakUpdateMap.get(pitchBreak.id) } : pitchBreak
       );
+      setPitchBreaks(nextBreaks);
+      currentBreaks = nextBreaks;
+    }
+
+    if (updates.fixtureUpdates.length > 0) {
+      batchUpdateFixtures(updates.fixtureUpdates, true, currentBreaks);
     }
   };
 
@@ -1294,15 +1288,27 @@ const Schedule = () => {
     }
   };
 
-  const handleAddBreak = (pitchId: string) => {
+  const handleAddBreak = (pitchId: string, insertIndex?: number) => {
     const pitchStart = effectivePitchById.get(pitchId)?.startTime || DEFAULT_ASSIGN_TIME;
     const timeline = listPitchTimeline(pitchId);
-    const lastTimelineItem = timeline[timeline.length - 1];
-    const startMinutes = lastTimelineItem
-      ? (lastTimelineItem.kind === 'fixture'
-          ? minutesFromMidnight(lastTimelineItem.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
-          : minutesFromMidnight(lastTimelineItem.item.startTime || DEFAULT_ASSIGN_TIME)) + getTimelineBlockMinutes(lastTimelineItem)
-      : minutesFromMidnight(pitchStart);
+
+    // Calculate start time based on insertion point
+    let startMinutes: number;
+    if (insertIndex !== undefined && insertIndex < timeline.length) {
+      const itemBefore = insertIndex > 0 ? timeline[insertIndex - 1] : undefined;
+      startMinutes = itemBefore
+        ? (itemBefore.kind === 'fixture'
+            ? minutesFromMidnight(itemBefore.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
+            : minutesFromMidnight(itemBefore.item.startTime || DEFAULT_ASSIGN_TIME)) + getTimelineBlockMinutes(itemBefore)
+        : minutesFromMidnight(pitchStart);
+    } else {
+      const lastTimelineItem = timeline[timeline.length - 1];
+      startMinutes = lastTimelineItem
+        ? (lastTimelineItem.kind === 'fixture'
+            ? minutesFromMidnight(lastTimelineItem.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
+            : minutesFromMidnight(lastTimelineItem.item.startTime || DEFAULT_ASSIGN_TIME)) + getTimelineBlockMinutes(lastTimelineItem)
+        : minutesFromMidnight(pitchStart);
+    }
 
     const nextBreak: PitchBreakItem = {
       id: uuidv4(),
@@ -1312,7 +1318,8 @@ const Schedule = () => {
       label: 'Break',
     };
 
-    const nextTimeline = [...timeline, { kind: 'break' as const, item: nextBreak }];
+    const idx = insertIndex !== undefined ? Math.max(0, Math.min(insertIndex, timeline.length)) : timeline.length;
+    const nextTimeline = [...timeline.slice(0, idx), { kind: 'break' as const, item: nextBreak }, ...timeline.slice(idx)];
     setPitchBreaks((current) => [...current, nextBreak]);
     const updates = buildPitchTimelineUpdates(pitchId, nextTimeline);
     applyPitchTimelineUpdates(updates);

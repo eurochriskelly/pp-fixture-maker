@@ -70,6 +70,14 @@ export interface Pitch {
   endTime?: string; // "HH:mm"
 }
 
+export interface PitchBreakItem {
+  id: string;
+  pitchId: string;
+  startTime: string;
+  duration: number;
+  label: string;
+}
+
 export interface TournamentData {
   competitions: Competition[];
   pitches: Pitch[];
