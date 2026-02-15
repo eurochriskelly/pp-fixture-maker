@@ -25,7 +25,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
-import { FixtureDetailsDialog } from '@/components/FixtureDetailsDialog';
+import { FixtureDetailsPanel } from '@/components/FixtureDetailsPanel';
 
 const PIXELS_PER_MINUTE = 2;
 const VIEW_START_HOUR = 8;
@@ -279,8 +279,7 @@ const Schedule = () => {
     Record<string, { groups: boolean; fixtures: boolean }>
   >({});
   
-  // Dialog state
-  const [detailsDialogOpen, setDetailsDialogOpen] = React.useState(false);
+  // Selection state
   const [selectedFixtureId, setSelectedFixtureId] = React.useState<string | null>(null);
 
   const clearDragState = React.useCallback(() => {
@@ -678,8 +677,7 @@ const Schedule = () => {
   };
 
   const handleFixtureClick = (fixtureId: string) => {
-    setSelectedFixtureId(fixtureId);
-    setDetailsDialogOpen(true);
+    setSelectedFixtureId(selectedFixtureId === fixtureId ? null : fixtureId);
   };
 
   const setCompetitionOpen = (competitionId: string, open: boolean) => {
@@ -1801,10 +1799,10 @@ const Schedule = () => {
   const portalTarget = document.getElementById('sidebar-schedule-portal');
 
   return (
-    <div className="container mx-auto p-0 h-full flex flex-col">
+    <div className="container mx-auto p-0 h-full flex flex-col relative">
       {portalTarget && createPortal(SidebarContentPortal, portalTarget)}
 
-      <div className="flex-1 flex flex-col h-full min-w-0 border rounded-lg bg-white overflow-hidden shadow-sm">
+      <div className="flex-1 flex flex-col min-h-0 border rounded-lg bg-white overflow-hidden shadow-sm mb-0">
           {/* Header */}
           <div className="flex border-b bg-slate-50 sticky top-0 z-20">
             <div className="w-16 flex-none border-r p-2 text-xs font-semibold text-center text-muted-foreground">Time</div>
@@ -2081,7 +2079,8 @@ const Schedule = () => {
                               recentlyPrimaryChangedId === fixture.id && 'fixture-change-primary',
                               dropTargetFixtureId === fixture.id && 'ring-2 ring-amber-500 shadow-md scale-[1.01]',
                               recentlySwappedIds.includes(fixture.id) && 'ring-2 ring-emerald-500',
-                              teamConflictFixtureIds.has(fixture.id) && 'ring-2 ring-red-500'
+                              teamConflictFixtureIds.has(fixture.id) && 'ring-2 ring-red-500',
+                              selectedFixtureId === fixture.id && 'ring-4 ring-primary ring-offset-2 z-30'
                             )}
                             style={{
                               top,
@@ -2275,12 +2274,15 @@ const Schedule = () => {
           </div>
         </div>
       
-      <FixtureDetailsDialog
-        open={detailsDialogOpen}
-        onOpenChange={setDetailsDialogOpen}
-        fixtureId={selectedFixtureId}
-        pitchBreaks={pitchBreaks}
-      />
+      {selectedFixtureId && (
+        <div className="h-[20%] min-h-[180px] border-t bg-background shadow-inner z-40">
+          <FixtureDetailsPanel
+            fixtureId={selectedFixtureId}
+            onClose={() => setSelectedFixtureId(null)}
+            pitchBreaks={pitchBreaks}
+          />
+        </div>
+      )}
     </div>
   );
 };
