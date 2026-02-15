@@ -3,6 +3,7 @@ export interface Group {
   name: string;
   defaultDuration?: number; // minutes
   defaultSlack?: number; // minutes
+  defaultRest?: number; // minutes
   pitchIds?: string[];
   primaryPitchId?: string;
 }

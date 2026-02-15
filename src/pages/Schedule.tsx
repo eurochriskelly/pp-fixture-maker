@@ -34,6 +34,7 @@ const DEFAULT_PITCH_END = '18:00';
 const DEFAULT_ASSIGN_TIME = '10:00';
 const DEFAULT_GROUP_DURATION = 20;
 const DEFAULT_GROUP_SLACK = 5;
+const DEFAULT_GROUP_REST = 20;
 const MIN_PITCH_WINDOW_MINUTES = 10;
 const DRAG_SNAP_MINUTES = 5;
 const DEFAULT_BREAK_DURATION = 15;
@@ -1596,17 +1597,46 @@ const Schedule = () => {
                                       <span className="w-2 h-2 rounded-full" style={{ backgroundColor: groupColor }} />
                                       <span className="font-medium truncate">{group.name}</span>
                                     </div>
-                                    <div className="flex gap-1 mb-1">
-                                      <Input
-                                        className="h-5 text-[9px] px-1 w-12"
-                                        value={group.defaultDuration ?? DEFAULT_GROUP_DURATION}
-                                        onChange={(e) =>
-                                          updateGroup(comp.id, group.id, {
-                                            defaultDuration: parseInt(e.target.value) || 20,
-                                          })
-                                        }
-                                      />
-                                      <span className="text-[9px] text-muted-foreground self-center">min</span>
+                                    <div className="flex gap-2 mb-2">
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <span className="text-[8px] font-bold text-muted-foreground">DUR</span>
+                                        <input
+                                          type="number"
+                                          className="h-5 text-[9px] px-1 w-10 border rounded text-center"
+                                          value={group.defaultDuration ?? DEFAULT_GROUP_DURATION}
+                                          onChange={(e) =>
+                                            updateGroup(comp.id, group.id, {
+                                              defaultDuration: Math.max(1, parseInt(e.target.value) || DEFAULT_GROUP_DURATION),
+                                            })
+                                          }
+                                        />
+                                      </div>
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <span className="text-[8px] font-bold text-muted-foreground">SLACK</span>
+                                        <input
+                                          type="number"
+                                          className="h-5 text-[9px] px-1 w-10 border rounded text-center"
+                                          value={group.defaultSlack ?? DEFAULT_GROUP_SLACK}
+                                          onChange={(e) =>
+                                            updateGroup(comp.id, group.id, {
+                                              defaultSlack: Math.max(0, parseInt(e.target.value) || DEFAULT_GROUP_SLACK),
+                                            })
+                                          }
+                                        />
+                                      </div>
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <span className="text-[8px] font-bold text-muted-foreground">REST</span>
+                                        <input
+                                          type="number"
+                                          className="h-5 text-[9px] px-1 w-10 border rounded text-center"
+                                          value={group.defaultRest ?? DEFAULT_GROUP_REST}
+                                          onChange={(e) =>
+                                            updateGroup(comp.id, group.id, {
+                                              defaultRest: Math.max(1, parseInt(e.target.value) || DEFAULT_GROUP_REST),
+                                            })
+                                          }
+                                        />
+                                      </div>
                                     </div>
                                     <div className="flex flex-wrap gap-1">
                                       {pitches.map((p) => (
