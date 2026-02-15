@@ -383,7 +383,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                   awayTeamId: away.id,
                   stage: 'Group',
                   description: (group.id !== 'default') ? `${group.name} - R${round + 1}` : `Round ${round + 1}`,
-                  duration: 20,
+                  // Don't set duration here so it falls back to group default
                   groupId: (group.id !== 'default') ? group.id : undefined
                 });
               }
@@ -580,8 +580,9 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const group = fixture.groupId ? groupsById.get(fixture.groupId) : undefined;
     return {
       group,
-      duration: group?.defaultDuration ?? fixture.duration ?? 20,
-      slack: group?.defaultSlack ?? 5,
+      // Prefer fixture specific override, then group default, then fallback
+      duration: fixture.duration ?? group?.defaultDuration ?? 20,
+      slack: fixture.slack ?? group?.defaultSlack ?? 5,
     };
   };
 

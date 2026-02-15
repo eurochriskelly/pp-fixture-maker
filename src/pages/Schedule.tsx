@@ -25,6 +25,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
+import { FixtureDetailsDialog } from '@/components/FixtureDetailsDialog';
 
 const PIXELS_PER_MINUTE = 2;
 const VIEW_START_HOUR = 8;
@@ -277,6 +278,11 @@ const Schedule = () => {
   const [competitionPanelState, setCompetitionPanelState] = React.useState<
     Record<string, { groups: boolean; fixtures: boolean }>
   >({});
+  
+  // Dialog state
+  const [detailsDialogOpen, setDetailsDialogOpen] = React.useState(false);
+  const [selectedFixtureId, setSelectedFixtureId] = React.useState<string | null>(null);
+
   const clearDragState = React.useCallback(() => {
     setDraggingItem(null);
     setDropTargetFixtureId(null);
@@ -399,6 +405,7 @@ const Schedule = () => {
       groupId?: string;
       startMin: number;
       endMin: number;
+      restOverride?: number;
     };
     const scheduled: ScheduledFixture[] = [];
 
@@ -414,6 +421,7 @@ const Schedule = () => {
           fixtureId: fixture.id,
           teamIds: teams,
           groupId: fixture.groupId,
+          restOverride: fixture.rest,
           startMin: minutesFromMidnight(fixture.startTime),
           endMin: minutesFromMidnight(fixture.startTime) + (fixture.duration || 20),
         });
@@ -447,8 +455,8 @@ const Schedule = () => {
           const current = sorted[i];
           const next = sorted[i + 1];
           const gap = next.startMin - current.endMin;
-          const restA = current.groupId ? (groupRestByGroupId.get(current.groupId) ?? DEFAULT_GROUP_REST) : DEFAULT_GROUP_REST;
-          const restB = next.groupId ? (groupRestByGroupId.get(next.groupId) ?? DEFAULT_GROUP_REST) : DEFAULT_GROUP_REST;
+          const restA = current.restOverride ?? (current.groupId ? (groupRestByGroupId.get(current.groupId) ?? DEFAULT_GROUP_REST) : DEFAULT_GROUP_REST);
+          const restB = next.restOverride ?? (next.groupId ? (groupRestByGroupId.get(next.groupId) ?? DEFAULT_GROUP_REST) : DEFAULT_GROUP_REST);
           const requiredRest = Math.max(restA, restB);
           if (gap >= 0 && gap < requiredRest) {
             if (!restWarnings.has(next.fixtureId)) restWarnings.set(next.fixtureId, new Set());
@@ -667,6 +675,11 @@ const Schedule = () => {
         startTime: undefined
       }, true, pitchBreaks);
     }
+  };
+
+  const handleFixtureClick = (fixtureId: string) => {
+    setSelectedFixtureId(fixtureId);
+    setDetailsDialogOpen(true);
   };
 
   const setCompetitionOpen = (competitionId: string, open: boolean) => {
@@ -2060,6 +2073,7 @@ const Schedule = () => {
                             onDragEnd={onDragEnd}
                             onDragOver={(e) => onDragOverFixture(e, fixture.id)}
                             onDrop={(e) => onDropFixture(e, fixture.id)}
+                            onClick={() => handleFixtureClick(fixture.id)}
                             className={cn(
                               'absolute w-[95%] left-[2.5%] rounded shadow-sm cursor-move text-[10px] overflow-hidden group hover:z-20 transition-all duration-200',
                               draggingItem?.kind === 'fixture' && draggingItem.id === fixture.id && 'opacity-50',
@@ -2260,6 +2274,13 @@ const Schedule = () => {
             </div>
           </div>
         </div>
+      
+      <FixtureDetailsDialog
+        open={detailsDialogOpen}
+        onOpenChange={setDetailsDialogOpen}
+        fixtureId={selectedFixtureId}
+        pitchBreaks={pitchBreaks}
+      />
     </div>
   );
 };
