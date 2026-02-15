@@ -1,11 +1,10 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { Group, Team } from '@/lib/types';
 import { useTournament } from '@/context/TournamentContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Trash2, GripVertical, Plus, Pencil } from 'lucide-react';
+import { Trash2, GripVertical, Pencil } from 'lucide-react';
 import { TeamEditDialog } from '@/components/TeamEditDialog';
 import {
     DropdownMenu,
@@ -23,8 +22,7 @@ interface GroupListProps {
 }
 
 export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, teams }) => {
-    const { moveTeamToGroup, deleteGroup, createGroup, updateGroup, pitches } = useTournament();
-    const [newGroupName, setNewGroupName] = useState('');
+    const { moveTeamToGroup, deleteGroup, updateGroup, pitches } = useTournament();
 
     const onDragStart = (e: React.DragEvent, teamId: string) => {
         e.dataTransfer.setData('teamId', teamId);
@@ -44,13 +42,6 @@ export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, tea
         }
     };
 
-    const handleCreateGroup = () => {
-        if (newGroupName) {
-            createGroup(competitionId, newGroupName);
-            setNewGroupName('');
-        }
-    };
-
     const unassignedTeams = teams.filter(t => !t.groupId);
 
     const toggleGroupPitch = (group: Group, pitchId: string, enabled: boolean) => {
@@ -67,19 +58,6 @@ export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, tea
 
     return (
         <div className="space-y-6">
-            <div className="flex gap-2 items-center">
-                <Input
-                    placeholder="New Group Name"
-                    value={newGroupName}
-                    onChange={(e) => setNewGroupName(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleCreateGroup()}
-                    className="max-w-xs"
-                />
-                <Button onClick={handleCreateGroup} disabled={!newGroupName}>
-                    <Plus className="mr-2 h-4 w-4" /> Add Group
-                </Button>
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Unassigned Teams */}
                 <Card

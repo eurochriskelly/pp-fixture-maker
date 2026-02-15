@@ -20,7 +20,7 @@ const CompetitionGroups = () => {
   const competition = competitions.find(c => c.id === id);
 
   const [newTeamName, setNewTeamName] = React.useState('');
-  const [numGroups, setNumGroups] = React.useState(2);
+  const [numGroups, setNumGroups] = React.useState(1);
 
   if (!competition) {
     return <div>Competition not found</div>;
@@ -61,7 +61,7 @@ const CompetitionGroups = () => {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {[2, 3, 4, 5, 6, 8].map(n => (
+                  {[1, 2, 3, 4, 5, 6, 8].map(n => (
                     <SelectItem key={n} value={String(n)}>{n}</SelectItem>
                   ))}
                 </SelectContent>

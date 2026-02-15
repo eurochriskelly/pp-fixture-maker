@@ -32,15 +32,21 @@ export const CompetitionHeader: React.FC<CompetitionHeaderProps> = ({ competitio
               </div>
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-60">
-            <div className="space-y-2">
-              <h4 className="font-medium leading-none">Edit Code</h4>
-              <p className="text-sm text-muted-foreground">
-                Update the badge code.
-              </p>
-              <div className="flex gap-2">
+          <PopoverContent className="w-72">
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <h4 className="font-medium leading-none">Rename Competition</h4>
+                <p className="text-sm text-muted-foreground">Update the competition name shown on this page.</p>
                 <Input
-                  defaultValue={competition.code}
+                  value={competition.name}
+                  onChange={(e) => updateCompetition(competition.id, { name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-medium leading-none">Edit Code</h4>
+                <p className="text-sm text-muted-foreground">Customize the badge code (up to 3 letters).</p>
+                <Input
+                  value={competition.code}
                   maxLength={3}
                   onChange={(e) => updateCompetition(competition.id, { code: e.target.value.toUpperCase() })}
                 />
