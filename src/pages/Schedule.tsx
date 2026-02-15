@@ -2038,6 +2038,7 @@ const Schedule = () => {
                         const comp = competitions.find((c) => c.id === competitionId);
                         const home = comp?.teams.find((t) => t.id === fixture.homeTeamId);
                         const away = comp?.teams.find((t) => t.id === fixture.awayTeamId);
+                        const group = groups.find((g) => g.id === fixture.groupId);
                         
                         const isKnockout = fixture.stage && fixture.stage !== 'Group';
                         const homeDisplay = home?.name || (fixture.homeTeamId === 'TBD' ? 'TBD' : fixture.description?.split(' vs ')[0] || 'Bye');
@@ -2053,7 +2054,7 @@ const Schedule = () => {
                         const heightMatch = duration * PIXELS_PER_MINUTE;
                         const heightSlack = slack * PIXELS_PER_MINUTE;
 
-                        const hasOverrides = fixture.duration !== undefined || fixture.slack !== undefined;
+                        const hasOverrides = fixture.duration !== undefined || fixture.slack !== undefined || fixture.rest !== undefined;
 
                         if (top < 0 && top + heightSlackBefore + heightMatch + heightSlack < 0) return null;
 
@@ -2139,8 +2140,11 @@ const Schedule = () => {
                                 </div>
                               )}
                               <div className={cn('font-bold truncate flex items-center gap-1', isKnockout ? 'text-purple-900' : 'text-blue-900')}>
-                                {hasOverrides && <Clock className="w-3 h-3 text-amber-600" />}
-                                {fixture.startTime} {isKnockout && `(${fixture.stage})`}
+                                {hasOverrides && <Clock className="w-3 h-3 text-amber-700 fill-amber-100" />}
+                                {fixture.startTime} 
+                                <span className="opacity-80 font-normal ml-0.5 scale-90 origin-left">
+                                  {isKnockout ? `(${fixture.stage})` : (group ? `(${group.name})` : '')}
+                                </span>
                               </div>
                               <div className={cn('truncate font-medium leading-tight', isKnockout ? 'text-purple-800' : 'text-blue-800')}>
                                 {(() => {
