@@ -2022,13 +2022,18 @@ const Schedule = () => {
                             {/* Match Duration Area */}
                             <div
                               className={cn(
-                                'w-full flex flex-col px-1 py-0.5',
+                                'w-full flex flex-col px-1 py-0.5 relative',
                                 isKnockout 
                                   ? 'bg-purple-100' 
                                   : 'bg-blue-100'
                               )}
                               style={{ height: heightMatch }}
                             >
+                              {fixture.matchId && (
+                                <div className="absolute top-0.5 right-0.5 text-[9px] font-bold bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded">
+                                  {fixture.matchId}
+                                </div>
+                              )}
                               <div className={cn('font-bold truncate', isKnockout ? 'text-purple-900' : 'text-blue-900')}>
                                 {fixture.startTime} {isKnockout && `(${fixture.stage})`}
                               </div>

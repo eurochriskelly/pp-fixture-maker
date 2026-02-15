@@ -157,11 +157,18 @@ export const StagePill: React.FC<{ fixture: Fixture; competition: Competition }>
   const backgroundColor = isGroup ? getGroupColor(fixture.groupId) : '#0f172a';
 
   return (
-    <div
-      className="border border-white/10 px-4 py-1.5 rounded-full text-[12px] font-black uppercase tracking-wide min-w-[56px] text-center font-mono text-white"
-      style={{ backgroundColor }}
-    >
-      {code}
+    <div className="flex flex-col items-center gap-1">
+      {fixture.matchId && (
+        <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">
+          {fixture.matchId}
+        </div>
+      )}
+      <div
+        className="border border-white/10 px-4 py-1.5 rounded-full text-[12px] font-black uppercase tracking-wide min-w-[56px] text-center font-mono text-white"
+        style={{ backgroundColor }}
+      >
+        {code}
+      </div>
     </div>
   );
 };

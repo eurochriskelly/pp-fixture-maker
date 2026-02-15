@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Competition, Fixture, Pitch, Team, Group, Club } from '@/lib/types';
 import { v4 as uuidv4 } from 'uuid';
 import { getGroupPitchIds } from '@/lib/groupPitches';
+import { generateMatchIdsForCompetition } from '@/utils/matchIdUtils';
 
 interface TournamentContextType {
   competitions: Competition[];
@@ -58,6 +59,18 @@ export const useTournament = () => {
     throw new Error('useTournament must be used within a TournamentProvider');
   }
   return context;
+};
+
+// Helper: Regenerate match IDs for a competition
+const withRegeneratedMatchIds = (comp: Competition): Competition => {
+  const matchIdMap = generateMatchIdsForCompetition(comp);
+  return {
+    ...comp,
+    fixtures: comp.fixtures.map(f => ({
+      ...f,
+      matchId: matchIdMap.get(f.id)
+    }))
+  };
 };
 
 // Golden ratio for maximum color distribution
@@ -393,10 +406,12 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           return false;
         });
 
-        return {
+        const updatedComp = {
           ...comp,
           fixtures: [...retainedFixtures, ...generatedFixtures]
         };
+
+        return withRegeneratedMatchIds(updatedComp);
       }
       return comp;
     }));
@@ -405,10 +420,11 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addManualFixture = (competitionId: string, fixture: Omit<Fixture, 'id' | 'competitionId'>) => {
     setCompetitions(prev => prev.map(comp => {
       if (comp.id === competitionId) {
-        return {
+        const updatedComp = {
           ...comp,
           fixtures: [...comp.fixtures, { ...fixture, id: uuidv4(), competitionId }]
         };
+        return withRegeneratedMatchIds(updatedComp);
       }
       return comp;
     }));
@@ -433,7 +449,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
         });
 
-        return {
+        const updatedComp = {
           ...comp,
           fixtures: comp.fixtures.map(f => {
             const updates = fixturesToUpdate.get(f.id);
@@ -443,6 +459,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             return f;
           }).concat(fixturesToAdd)
         };
+
+        return withRegeneratedMatchIds(updatedComp);
       }
       return comp;
     }));
@@ -452,10 +470,11 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setCompetitions(competitions => {
       const nextCompetitions = competitions.map(comp => {
         if (comp.id === competitionId) {
-          return {
+          const updatedComp = {
             ...comp,
             fixtures: comp.fixtures.map(f => f.id === fixtureId ? { ...f, ...updates } : f)
           };
+          return withRegeneratedMatchIds(updatedComp);
         }
         return comp;
       });
@@ -478,10 +497,11 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setCompetitions(competitions => {
       const nextCompetitions = competitions.map(comp => {
         if (comp.id === competitionId) {
-          return {
+          const updatedComp = {
             ...comp,
             fixtures: comp.fixtures.filter(f => f.id !== fixtureId)
           };
+          return withRegeneratedMatchIds(updatedComp);
         }
         return comp;
       });
@@ -923,7 +943,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         };
       });
 
-      return enforceNoPitchOverlaps(scheduledCompetitions);
+      const withMatchIds = scheduledCompetitions.map(comp => withRegeneratedMatchIds(comp));
+      return enforceNoPitchOverlaps(withMatchIds);
     });
   };
 
@@ -1014,7 +1035,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         const updateMap = new Map(compUpdates.map(u => [u.fixtureId, u.updates]));
 
-        return {
+        const updatedComp = {
           ...comp,
           fixtures: comp.fixtures.map(f => {
             const update = updateMap.get(f.id);
@@ -1024,6 +1045,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             return f;
           })
         };
+
+        return withRegeneratedMatchIds(updatedComp);
       });
 
       if (shouldRecalculate) {
