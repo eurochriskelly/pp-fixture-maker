@@ -4,7 +4,7 @@ import { Group, Team } from '@/lib/types';
 import { useTournament } from '@/context/TournamentContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Trash2, GripVertical, Pencil } from 'lucide-react';
+import { Trash2, GripVertical, Pencil, AlertCircle } from 'lucide-react';
 import { TeamEditDialog } from '@/components/TeamEditDialog';
 import {
     DropdownMenu,
@@ -14,6 +14,8 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { getGroupPitchIds } from '@/lib/groupPitches';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
 interface GroupListProps {
     competitionId: string;
@@ -56,6 +58,61 @@ export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, tea
         });
     };
 
+    const renderTeamItem = (team: Team) => {
+        const isIncomplete = !team.clubId;
+        return (
+            <div
+                key={team.id}
+                draggable
+                onDragStart={(e) => onDragStart(e, team.id)}
+                className={cn(
+                    "flex items-center gap-2 p-2 border rounded cursor-move hover:shadow-sm transition-all relative",
+                    team.groupId ? "bg-secondary/20 hover:bg-secondary/30" : "bg-white",
+                    isIncomplete && "border-amber-300 bg-amber-50/50"
+                )}
+            >
+                <GripVertical className="h-4 w-4 text-muted-foreground" />
+                <div className="flex-1 flex justify-between items-center group/team gap-2">
+                    <div className="flex items-center gap-2 overflow-hidden">
+                        <div
+                            className="w-6 h-6 rounded flex-shrink-0 flex items-center justify-center text-xs font-bold border shadow-sm overflow-hidden relative"
+                            style={{
+                                backgroundColor: team.primaryColor || '#f1f5f9',
+                                color: team.secondaryColor || '#64748b'
+                            }}
+                        >
+                            {team.crest ? (
+                                <img src={team.crest} alt={team.name} className="w-full h-full object-contain p-0.5" />
+                            ) : (
+                                team.initials || team.name.substring(0, 2).toUpperCase()
+                            )}
+                        </div>
+                        <span className="text-sm font-medium truncate">{team.name}</span>
+                        {isIncomplete && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger>
+                                        <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        <p>No club linked</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
+                    </div>
+                    <div className="opacity-0 group-hover/team:opacity-100 transition-opacity">
+                        <TeamEditDialog competitionId={competitionId} team={team}>
+                            <Button variant="ghost" size="icon" className="h-4 w-4">
+                                <Pencil className="h-3 w-3 text-muted-foreground hover:text-primary" />
+                            </Button>
+                        </TeamEditDialog>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -71,26 +128,7 @@ export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, tea
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 min-h-[100px]">
-                        {unassignedTeams.map((team, index) => (
-                            <div
-                                key={team.id}
-                                draggable
-                                onDragStart={(e) => onDragStart(e, team.id)}
-                                className="flex items-center gap-2 p-2 bg-white border rounded cursor-move hover:shadow-sm transition-all"
-                            >
-                                <GripVertical className="h-4 w-4 text-muted-foreground" />
-                                <div className="flex-1 flex justify-between items-center group/team">
-                                    <span className="text-sm font-medium">{team.name}</span>
-                                    <div className="opacity-0 group-hover/team:opacity-100 transition-opacity">
-                                        <TeamEditDialog competitionId={competitionId} team={team}>
-                                            <Button variant="ghost" size="icon" className="h-4 w-4">
-                                                <Pencil className="h-3 w-3 text-muted-foreground hover:text-primary" />
-                                            </Button>
-                                        </TeamEditDialog>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
+                        {unassignedTeams.map(renderTeamItem)}
                         {unassignedTeams.length === 0 && (
                             <div className="text-center text-xs text-muted-foreground py-4">No unassigned teams</div>
                         )}
@@ -150,41 +188,7 @@ export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, tea
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-2 min-h-[100px]">
-                                {groupTeams.map((team) => (
-                                    <div
-                                        key={team.id}
-                                        draggable
-                                        onDragStart={(e) => onDragStart(e, team.id)}
-                                        className="flex items-center gap-2 p-2 bg-secondary/20 border rounded cursor-move hover:bg-secondary/30 transition-all"
-                                    >
-                                        <GripVertical className="h-4 w-4 text-muted-foreground" />
-                                        <div className="flex-1 flex items-center justify-between group/team gap-2">
-                                            <div className="flex items-center gap-2">
-                                                <div
-                                                    className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold border shadow-sm overflow-hidden relative"
-                                                    style={{
-                                                        backgroundColor: team.primaryColor || '#f1f5f9',
-                                                        color: team.secondaryColor || '#64748b'
-                                                    }}
-                                                >
-                                                    {team.crest ? (
-                                                        <img src={team.crest} alt={team.name} className="w-full h-full object-contain p-0.5" />
-                                                    ) : (
-                                                        team.initials || team.name.substring(0, 2).toUpperCase()
-                                                    )}
-                                                </div>
-                                                <span className="text-sm font-medium">{team.name}</span>
-                                            </div>
-                                            <div className="opacity-0 group-hover/team:opacity-100 transition-opacity">
-                                                <TeamEditDialog competitionId={competitionId} team={team}>
-                                                    <Button variant="ghost" size="icon" className="h-4 w-4">
-                                                        <Pencil className="h-3 w-3 text-muted-foreground hover:text-primary" />
-                                                    </Button>
-                                                </TeamEditDialog>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
+                                {groupTeams.map(renderTeamItem)}
                                 {groupTeams.length === 0 && (
                                     <div className="text-center text-xs text-muted-foreground py-4">Drop teams here</div>
                                 )}
