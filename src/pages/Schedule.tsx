@@ -378,14 +378,24 @@ const Schedule = () => {
     [effectivePitches]
   );
 
-  // Detect team time conflicts: fixtures where a team plays two matches at overlapping times
-  const teamConflictFixtureIds = React.useMemo(() => {
+  // Detect team time conflicts and insufficient rest periods
+  const { teamConflictFixtureIds, teamRestWarningFixtureIds } = React.useMemo(() => {
     const conflictIds = new Set<string>();
+    const restWarningIds = new Set<string>();
+
+    // Build group rest lookup: groupId → rest minutes
+    const groupRestByGroupId = new Map<string, number>();
+    competitions.forEach((comp) => {
+      (comp.groups || []).forEach((group) => {
+        groupRestByGroupId.set(group.id, group.defaultRest ?? DEFAULT_GROUP_REST);
+      });
+    });
 
     // Collect all scheduled fixtures with their time intervals
     type ScheduledFixture = {
       fixtureId: string;
       teamIds: string[];
+      groupId?: string;
       startMin: number;
       endMin: number;
     };
@@ -402,6 +412,7 @@ const Schedule = () => {
         scheduled.push({
           fixtureId: fixture.id,
           teamIds: teams,
+          groupId: fixture.groupId,
           startMin: minutesFromMidnight(fixture.startTime),
           endMin: minutesFromMidnight(fixture.startTime) + (fixture.duration || 20),
         });
@@ -417,22 +428,39 @@ const Schedule = () => {
       });
     });
 
-    // Check for overlaps within each team's fixtures
+    // Check for overlaps and rest violations within each team's fixtures
     fixturesByTeam.forEach((fixtures) => {
       if (fixtures.length < 2) return;
-      for (let i = 0; i < fixtures.length; i++) {
-        for (let j = i + 1; j < fixtures.length; j++) {
-          const a = fixtures[i];
-          const b = fixtures[j];
+      // Sort by start time for rest checking
+      const sorted = [...fixtures].sort((a, b) => a.startMin - b.startMin);
+      for (let i = 0; i < sorted.length; i++) {
+        for (let j = i + 1; j < sorted.length; j++) {
+          const a = sorted[i];
+          const b = sorted[j];
+          // Exact overlap
           if (a.startMin < b.endMin && a.endMin > b.startMin) {
             conflictIds.add(a.fixtureId);
             conflictIds.add(b.fixtureId);
           }
         }
+        // Rest violation: check gap between consecutive matches
+        if (i < sorted.length - 1) {
+          const current = sorted[i];
+          const next = sorted[i + 1];
+          const gap = next.startMin - current.endMin;
+          // Use the larger rest requirement of the two fixtures' groups
+          const restA = current.groupId ? (groupRestByGroupId.get(current.groupId) ?? DEFAULT_GROUP_REST) : DEFAULT_GROUP_REST;
+          const restB = next.groupId ? (groupRestByGroupId.get(next.groupId) ?? DEFAULT_GROUP_REST) : DEFAULT_GROUP_REST;
+          const requiredRest = Math.max(restA, restB);
+          if (gap >= 0 && gap < requiredRest) {
+            restWarningIds.add(current.fixtureId);
+            restWarningIds.add(next.fixtureId);
+          }
+        }
       }
     });
 
-    return conflictIds;
+    return { teamConflictFixtureIds: conflictIds, teamRestWarningFixtureIds: restWarningIds };
   }, [competitions]);
 
   const commitPitchDraft = React.useCallback(
@@ -2041,18 +2069,19 @@ const Schedule = () => {
                               recentlyPrimaryChangedId === fixture.id && 'fixture-change-primary',
                               dropTargetFixtureId === fixture.id && 'ring-2 ring-amber-500 shadow-md scale-[1.01]',
                               recentlySwappedIds.includes(fixture.id) && 'ring-2 ring-emerald-500',
-                              teamConflictFixtureIds.has(fixture.id) && 'ring-2 ring-red-500'
+                              teamConflictFixtureIds.has(fixture.id) && 'ring-2 ring-red-500',
+                              !teamConflictFixtureIds.has(fixture.id) && teamRestWarningFixtureIds.has(fixture.id) && 'ring-2 ring-orange-400'
                             )}
                             style={{
                               top,
                               height: heightSlackBefore + heightMatch + heightSlack,
                               borderLeft: `0.6rem solid ${comp?.color || '#1e293b'}`,
-                              borderTop: teamConflictFixtureIds.has(fixture.id) ? '1px solid #ef4444' : '1px solid #e2e8f0',
-                              borderRight: teamConflictFixtureIds.has(fixture.id) ? '1px solid #ef4444' : '1px solid #e2e8f0',
-                              borderBottom: teamConflictFixtureIds.has(fixture.id) ? '1px solid #ef4444' : '1px solid #e2e8f0',
+                              borderTop: teamConflictFixtureIds.has(fixture.id) ? '1px solid #ef4444' : teamRestWarningFixtureIds.has(fixture.id) ? '1px solid #fb923c' : '1px solid #e2e8f0',
+                              borderRight: teamConflictFixtureIds.has(fixture.id) ? '1px solid #ef4444' : teamRestWarningFixtureIds.has(fixture.id) ? '1px solid #fb923c' : '1px solid #e2e8f0',
+                              borderBottom: teamConflictFixtureIds.has(fixture.id) ? '1px solid #ef4444' : teamRestWarningFixtureIds.has(fixture.id) ? '1px solid #fb923c' : '1px solid #e2e8f0',
                               opacity: isKnockout ? 1 : undefined
                             }}
-                            title={`${fixture.startTime} - ${comp?.name} - ${fixture.stage || 'Group'} - ${homeDisplay} vs ${awayDisplay}${teamConflictFixtureIds.has(fixture.id) ? ' ⚠ Team time conflict' : ''}`}
+                            title={`${fixture.startTime} - ${comp?.name} - ${fixture.stage || 'Group'} - ${homeDisplay} vs ${awayDisplay}${teamConflictFixtureIds.has(fixture.id) ? ' ⚠ Team time conflict' : teamRestWarningFixtureIds.has(fixture.id) ? ' ⚠ Insufficient rest' : ''}`}
                           >
                             {dropTargetFixtureId === fixture.id && (
                               <div className="absolute top-0.5 right-5 rounded bg-amber-500/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
@@ -2072,6 +2101,11 @@ const Schedule = () => {
                             {teamConflictFixtureIds.has(fixture.id) && (
                               <div className="absolute top-0.5 right-0.5 rounded bg-red-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none z-10">
                                 ⚠ Clash
+                              </div>
+                            )}
+                            {!teamConflictFixtureIds.has(fixture.id) && teamRestWarningFixtureIds.has(fixture.id) && (
+                              <div className="absolute top-0.5 right-0.5 rounded bg-orange-500/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none z-10">
+                                ⚠ Rest
                               </div>
                             )}
 
