@@ -45,7 +45,9 @@ export interface Fixture {
   awayTeamId: string; // ID or "TBD" or placeholder
   pitchId?: string;
   startTime?: string; // "HH:mm"
-  duration: number; // minutes
+  duration?: number; // minutes (Optional override)
+  slack?: number; // minutes (Optional override for slack after match)
+  rest?: number; // minutes (Optional override for team rest after match)
   stage: string; // "Group", "Final", etc.
   description?: string; // Optional description like "1st vs 2nd"
   groupId?: string; // Optional: Link fixture to a group
