@@ -21,7 +21,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useTournament } from "@/context/TournamentContext";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
-import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList, Shield } from "lucide-react";
+import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList, Shield, Grid3x3 } from "lucide-react";
 import { CompetitionBadge } from "@/components/CompetitionBadge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -100,6 +100,53 @@ export default function SidebarLayout() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <Collapsible asChild className="group/collapsible" defaultOpen={location.pathname === "/by-pitch" || location.pathname.startsWith("/reports/")}>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location.pathname === "/by-pitch"}>
+                    <Link to="/by-pitch">
+                      <Grid3x3 />
+                      <span>Reports</span>
+                    </Link>
+                  </SidebarMenuButton>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton className="w-8 p-0 justify-center flex-shrink-0">
+                      <ChevronRight className="transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                      <span className="sr-only">Toggle Reports menu</span>
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <SidebarMenuSub>
+                      <li className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                        Analysis
+                      </li>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton asChild isActive={location.pathname === "/reports/play-time"}>
+                          <Link to="/reports/play-time">
+                            <span>Play time</span>
+                          </Link>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton asChild isActive={location.pathname === "/reports/club-contributions"}>
+                          <Link to="/reports/club-contributions">
+                            <span>Club Contributions</span>
+                          </Link>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                      <li className="px-2 py-1.5 text-xs font-medium text-muted-foreground mt-2">
+                        Information
+                      </li>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton asChild isActive={location.pathname === "/by-pitch"}>
+                          <Link to="/by-pitch">
+                            <span>By Pitch</span>
+                          </Link>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </SidebarMenuItem>
+              </Collapsible>
             </SidebarMenu>
           </SidebarGroup>
 
