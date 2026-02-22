@@ -1605,36 +1605,37 @@ const Schedule = () => {
     return `${h.toString().padStart(2, '0')}:00`;
   }
 
-  const SidebarContentPortal = (
-    <>
-      <SidebarGroup>
-        <SidebarGroupLabel>Schedule Tools</SidebarGroupLabel>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={handleAddPitch}>
-              <Plus /> <span>Add Pitch</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={handleAutoSchedule}>
-              <Clock /> <span>Auto Schedule All</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={handleResetSchedule}>
-              <RotateCcw /> <span>Reset Schedule</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={() => effectivePitches.length > 0 && handleAddBreak(effectivePitches[0].id)}>
-              <Plus /> <span>Add Break</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarGroup>
+  const ScheduleToolsPortal = (
+    <SidebarGroup>
+      <SidebarGroupLabel>Schedule Tools</SidebarGroupLabel>
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton onClick={handleAddPitch}>
+            <Plus /> <span>Add Pitch</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton onClick={handleAutoSchedule}>
+            <Clock /> <span>Auto Schedule All</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton onClick={handleResetSchedule}>
+            <RotateCcw /> <span>Reset Schedule</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton onClick={() => effectivePitches.length > 0 && handleAddBreak(effectivePitches[0].id)}>
+            <Plus /> <span>Add Break</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </SidebarGroup>
+  );
 
-      <SidebarGroup className="mt-4">
-        <SidebarGroupLabel>Competitions</SidebarGroupLabel>
+  const CompetitionsDetailPortal = (
+    <SidebarGroup className="mt-4">
+      <SidebarGroupLabel>Competitions</SidebarGroupLabel>
         {competitions.length === 0 ? (
           <div className="text-xs text-muted-foreground px-2 py-1">No competitions.</div>
         ) : (
@@ -1778,14 +1779,15 @@ const Schedule = () => {
           </SidebarMenu>
         )}
       </SidebarGroup>
-    </>
   );
 
-  const portalTarget = document.getElementById('sidebar-schedule-portal');
+  const schedulePortalTarget = document.getElementById('sidebar-schedule-portal');
+  const competitionsPortalTarget = document.getElementById('sidebar-competitions-portal');
 
   return (
     <div className="container mx-auto p-0 h-full flex flex-col relative">
-      {portalTarget && createPortal(SidebarContentPortal, portalTarget)}
+      {schedulePortalTarget && createPortal(ScheduleToolsPortal, schedulePortalTarget)}
+      {competitionsPortalTarget && createPortal(CompetitionsDetailPortal, competitionsPortalTarget)}
 
       <div className="absolute inset-0 flex flex-col min-h-0 border rounded-lg bg-white overflow-hidden shadow-sm mb-0">
           {/* Header: Fixed top */}

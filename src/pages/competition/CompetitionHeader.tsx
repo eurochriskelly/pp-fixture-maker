@@ -20,15 +20,15 @@ export const CompetitionHeader: React.FC<CompetitionHeaderProps> = ({ competitio
       <div className="flex items-center gap-4">
         <Popover>
           <PopoverTrigger asChild>
-            <button className="relative group rounded-full">
+            <button className="relative group rounded-full hover:ring-2 hover:ring-primary hover:ring-offset-2 transition-all">
               <CompetitionBadge
                 code={competition.code || competition.name.substring(0, 2).toUpperCase()}
                 color={competition.color}
                 size="lg"
-                className="w-16 h-16 text-xl shadow-md"
+                className="w-12 h-12 text-lg shadow-sm"
               />
-              <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                <Edit2 className="w-5 h-5 text-white" />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                <Edit2 className="w-4 h-4 text-white" />
               </div>
             </button>
           </PopoverTrigger>
@@ -54,10 +54,6 @@ export const CompetitionHeader: React.FC<CompetitionHeaderProps> = ({ competitio
             </div>
           </PopoverContent>
         </Popover>
-        <div>
-          <h1 className="text-3xl font-bold">{competition.name}</h1>
-          <p className="text-muted-foreground text-sm">{competition.teams.length} Teams • {competition.fixtures.length} Fixtures</p>
-        </div>
       </div>
     </div>
   );

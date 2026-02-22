@@ -178,7 +178,6 @@ const ByPitch: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Matches by Pitch</h1>
         <p className="text-muted-foreground">View all scheduled matches organized by pitch</p>
       </div>
 

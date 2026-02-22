@@ -80,6 +80,17 @@ export interface PitchBreakItem {
   label: string;
 }
 
+export interface Tournament {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+  competitions: Competition[];
+  pitches: Pitch[];
+  clubs: Club[];
+}
+
 export interface TournamentData {
   competitions: Competition[];
   pitches: Pitch[];

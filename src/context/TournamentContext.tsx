@@ -1,19 +1,27 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Competition, Fixture, Pitch, Team, Group, Club, PitchBreakItem } from '@/lib/types';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { Competition, Fixture, Pitch, Team, Group, Club, PitchBreakItem, Tournament } from '@/lib/types';
 import { v4 as uuidv4 } from 'uuid';
 import { getGroupPitchIds } from '@/lib/groupPitches';
 import { generateMatchIdsForCompetition } from '@/utils/matchIdUtils';
 
 interface TournamentContextType {
-  competitions: Competition[];
-  pitches: Pitch[];
-  clubs: Club[];
-
+  tournaments: Tournament[];
+  currentTournament: Tournament | null;
+  setCurrentTournament: (tournament: Tournament | null) => void;
+  
+  // Tournament Actions
+  addTournament: (name: string, description?: string) => Tournament;
+  deleteTournament: (id: string) => void;
+  updateTournament: (id: string, updates: Partial<Tournament>) => void;
+  
   // Competition Actions
+  competitions: Competition[];
   addCompetition: (name: string) => void;
   deleteCompetition: (id: string) => void;
+  updateCompetition: (id: string, updates: Partial<Competition>) => void;
 
   // Club Actions
+  clubs: Club[];
   addClub: (club: Omit<Club, 'id'>) => void;
   updateClub: (id: string, updates: Partial<Club>) => void;
   deleteClub: (id: string) => void;
@@ -37,6 +45,7 @@ interface TournamentContextType {
   autoAssignGroups: (competitionId: string, numGroups: number) => void;
 
   // Pitch Actions
+  pitches: Pitch[];
   addPitch: (name: string, startTime?: string, endTime?: string) => void;
   updatePitch: (id: string, updates: Partial<Pitch>) => void;
   deletePitch: (id: string) => void;
@@ -46,7 +55,6 @@ interface TournamentContextType {
   resetAllSchedules: () => void;
   updateGroup: (competitionId: string, groupId: string, updates: Partial<Group>) => void;
   reorderFixtureToPitch: (fixtureId: string, targetPitchId: string, targetIndex?: number) => void;
-  updateCompetition: (id: string, updates: Partial<Competition>) => void;
   batchUpdateFixtures: (updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[], shouldRecalculate?: boolean, pitchBreaks?: PitchBreakItem[]) => void;
   recalculateSchedule: (competitionId: string, pitchBreaks?: PitchBreakItem[]) => void;
 }
@@ -111,42 +119,151 @@ function generateCompetitionColor(index: number): string {
 
 export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Load from local storage or start fresh
-  const [competitions, setCompetitions] = useState<Competition[]>(() => {
-    const saved = localStorage.getItem('tournament_competitions');
-    if (!saved) return [];
+  const [tournaments, setTournaments] = useState<Tournament[]>(() => {
+    const saved = localStorage.getItem('tournament_maker_tournaments');
+    if (saved) {
+      const loadedTournaments: Tournament[] = JSON.parse(saved);
+      // Migrate: ensure all tournaments have updatedAt
+      return loadedTournaments.map(t => ({
+        ...t,
+        competitions: t.competitions.map((comp, index) => ({
+          ...comp,
+          color: comp.color || generateCompetitionColor(index)
+        }))
+      }));
+    }
     
-    const loadedCompetitions: Competition[] = JSON.parse(saved);
-    // Migrate: assign colors to competitions that don't have them
-    return loadedCompetitions.map((comp, index) => ({
-      ...comp,
-      color: comp.color || generateCompetitionColor(index)
-    }));
+    // Check for legacy data and migrate if needed
+    const legacyCompetitions = localStorage.getItem('tournament_competitions');
+    const legacyPitches = localStorage.getItem('tournament_pitches');
+    const legacyClubs = localStorage.getItem('tournament_clubs');
+    
+    const hasLegacyData = legacyCompetitions || legacyPitches || legacyClubs;
+    
+    if (hasLegacyData) {
+      const now = new Date().toISOString();
+      const migratedTournament: Tournament = {
+        id: uuidv4(),
+        name: 'My Tournament (Migrated)',
+        description: 'Migrated from previous version',
+        createdAt: now,
+        updatedAt: now,
+        competitions: legacyCompetitions ? JSON.parse(legacyCompetitions) : [],
+        pitches: legacyPitches ? JSON.parse(legacyPitches) : [],
+        clubs: legacyClubs ? JSON.parse(legacyClubs) : []
+      };
+      
+      // Migrate: ensure competitions have colors
+      migratedTournament.competitions = migratedTournament.competitions.map((comp, index) => ({
+        ...comp,
+        color: comp.color || generateCompetitionColor(index)
+      }));
+      
+      return [migratedTournament];
+    }
+    
+    return [];
   });
 
-  const [pitches, setPitches] = useState<Pitch[]>(() => {
-    const saved = localStorage.getItem('tournament_pitches');
-    return saved ? JSON.parse(saved) : [];
+  const [currentTournamentId, setCurrentTournamentId] = useState<string | null>(() => {
+    // First check if there's a saved current tournament ID
+    const saved = localStorage.getItem('tournament_maker_current_id');
+    if (saved) return saved;
+    
+    // If we just migrated, select the first tournament
+    const savedTournaments = localStorage.getItem('tournament_maker_tournaments');
+    if (savedTournaments) {
+      const tournaments: Tournament[] = JSON.parse(savedTournaments);
+      if (tournaments.length > 0) {
+        return tournaments[0].id;
+      }
+    }
+    
+    // Check if we need to migrate and set the migrated tournament as current
+    const legacyCompetitions = localStorage.getItem('tournament_competitions');
+    const legacyPitches = localStorage.getItem('tournament_pitches');
+    const legacyClubs = localStorage.getItem('tournament_clubs');
+    
+    if (legacyCompetitions || legacyPitches || legacyClubs) {
+      // Migration will happen in tournaments state init, we'll get the ID from there
+      // Return null for now, it will be set when tournaments state initializes
+      return null;
+    }
+    
+    return null;
   });
 
-  const [clubs, setClubs] = useState<Club[]>(() => {
-    const saved = localStorage.getItem('tournament_clubs');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const currentTournament = tournaments.find(t => t.id === currentTournamentId) || null;
+  const competitions = currentTournament?.competitions || [];
+  const pitches = currentTournament?.pitches || [];
+  const clubs = currentTournament?.clubs || [];
+
+  // Handle migration: if we have tournaments but no current selection, select the first one
+  useEffect(() => {
+    if (!currentTournamentId && tournaments.length > 0) {
+      setCurrentTournamentId(tournaments[0].id);
+    }
+  }, [currentTournamentId, tournaments]);
 
   // Save to local storage
   useEffect(() => {
-    localStorage.setItem('tournament_competitions', JSON.stringify(competitions));
-  }, [competitions]);
+    localStorage.setItem('tournament_maker_tournaments', JSON.stringify(tournaments));
+  }, [tournaments]);
 
   useEffect(() => {
-    localStorage.setItem('tournament_pitches', JSON.stringify(pitches));
-  }, [pitches]);
+    if (currentTournamentId) {
+      localStorage.setItem('tournament_maker_current_id', currentTournamentId);
+    } else {
+      localStorage.removeItem('tournament_maker_current_id');
+    }
+  }, [currentTournamentId]);
 
-  useEffect(() => {
-    localStorage.setItem('tournament_clubs', JSON.stringify(clubs));
-  }, [clubs]);
+  const setCurrentTournament = useCallback((tournament: Tournament | null) => {
+    setCurrentTournamentId(tournament?.id || null);
+  }, []);
 
-  const addCompetition = (name: string) => {
+  const addTournament = useCallback((name: string, description?: string): Tournament => {
+    const now = new Date().toISOString();
+    const newTournament: Tournament = {
+      id: uuidv4(),
+      name,
+      description,
+      createdAt: now,
+      updatedAt: now,
+      competitions: [],
+      pitches: [],
+      clubs: []
+    };
+    setTournaments(prev => [...prev, newTournament]);
+    return newTournament;
+  }, []);
+
+  const deleteTournament = useCallback((id: string) => {
+    setTournaments(prev => {
+      const filtered = prev.filter(t => t.id !== id);
+      if (currentTournamentId === id) {
+        setCurrentTournamentId(filtered.length > 0 ? filtered[0].id : null);
+      }
+      return filtered;
+    });
+  }, [currentTournamentId]);
+
+  const updateTournament = useCallback((id: string, updates: Partial<Tournament>) => {
+    setTournaments(prev => prev.map(t => 
+      t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t
+    ));
+  }, []);
+
+  const updateCurrentTournament = useCallback((updater: (t: Tournament) => Tournament) => {
+    if (!currentTournamentId) return;
+    setTournaments(prev => prev.map(t => 
+      t.id === currentTournamentId ? updater(t) : t
+    ));
+  }, [currentTournamentId]);
+
+  const addCompetition = useCallback((name: string) => {
+    if (!currentTournamentId) return;
+    
     // Generate code from initials
     const words = name.trim().split(/\s+/);
     let code = '';
@@ -156,56 +273,91 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       code = words.slice(0, 2).map(w => w[0]).join('').toUpperCase();
     }
 
-    // Assign color using golden ratio for max visual distinction
-    const color = generateCompetitionColor(competitions.length);
+    updateCurrentTournament(t => {
+      const color = generateCompetitionColor(t.competitions.length);
+      const newComp: Competition = {
+        id: uuidv4(),
+        name,
+        code,
+        color,
+        teams: [],
+        groups: [],
+        fixtures: []
+      };
+      return {
+        ...t,
+        competitions: [...t.competitions, newComp],
+        updatedAt: new Date().toISOString()
+      };
+    });
+  }, [currentTournamentId, updateCurrentTournament]);
 
-    const newComp: Competition = {
-      id: uuidv4(),
-      name,
-      code,
-      color,
-      teams: [],
-      groups: [],
-      fixtures: []
-    };
-    setCompetitions([...competitions, newComp]);
-  };
+  const updateCompetition = useCallback((id: string, updates: Partial<Competition>) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.map(c => c.id === id ? { ...c, ...updates } : c),
+      updatedAt: new Date().toISOString()
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const updateCompetition = (id: string, updates: Partial<Competition>) => {
-    setCompetitions(competitions.map(c => c.id === id ? { ...c, ...updates } : c));
-  };
+  const deleteCompetition = useCallback((id: string) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.filter(c => c.id !== id),
+      updatedAt: new Date().toISOString()
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const deleteCompetition = (id: string) => {
-    setCompetitions(competitions.filter(c => c.id !== id));
-  };
+  const addClub = useCallback((club: Omit<Club, 'id'>) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      clubs: [...t.clubs, { ...club, id: uuidv4() }],
+      updatedAt: new Date().toISOString()
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const addClub = (club: Omit<Club, 'id'>) => {
-    setClubs([...clubs, { ...club, id: uuidv4() }]);
-  };
+  const updateClub = useCallback((id: string, updates: Partial<Club>) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      clubs: t.clubs.map(c => c.id === id ? { ...c, ...updates } : c),
+      updatedAt: new Date().toISOString()
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const updateClub = (id: string, updates: Partial<Club>) => {
-    setClubs(clubs.map(c => c.id === id ? { ...c, ...updates } : c));
-  };
+  const deleteClub = useCallback((id: string) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      clubs: t.clubs.filter(c => c.id !== id),
+      competitions: t.competitions.map(comp => ({
+        ...comp,
+        teams: comp.teams.map(team => t.clubs.find(c => c.id === id && team.clubId === id) 
+          ? { ...team, clubId: undefined } 
+          : team
+        )
+      })),
+      updatedAt: new Date().toISOString()
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const deleteClub = (id: string) => {
-    setClubs(clubs.filter(c => c.id !== id));
-    // Optionally update teams that were linked to this club
-    setCompetitions(competitions.map(comp => ({
-      ...comp,
-      teams: comp.teams.map(t => t.clubId === id ? { ...t, clubId: undefined } : t)
-    })));
-  };
-
-  const addTeam = (competitionId: string, name?: string, clubId?: string) => {
-    setCompetitions(competitions.map(comp => {
-      if (comp.id === competitionId) {
+  const addTeam = useCallback((competitionId: string, name?: string, clubId?: string) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.map(comp => {
+        if (comp.id !== competitionId) return comp;
+        
         let finalName = name;
         let initials;
         let primaryColor;
         let secondaryColor;
 
         if (clubId) {
-           const club = clubs.find(c => c.id === clubId);
+           const club = t.clubs.find(c => c.id === clubId);
            if (club && !finalName) {
              finalName = club.name;
              initials = club.code;
@@ -227,94 +379,115 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           ...comp,
           teams: [...comp.teams, { 
             id: uuidv4(), 
-            name: finalName, 
+            name: finalName!, 
             clubId,
             initials,
             primaryColor,
             secondaryColor
           }]
         };
-      }
-      return comp;
+      }),
+      updatedAt: new Date().toISOString()
     }));
-  };
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const updateTeam = (competitionId: string, teamId: string, updates: Partial<Team>) => {
-    setCompetitions(competitions.map(comp => {
-      if (comp.id === competitionId) {
+  const updateTeam = useCallback((competitionId: string, teamId: string, updates: Partial<Team>) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.map(comp => {
+        if (comp.id !== competitionId) return comp;
         return {
           ...comp,
-          teams: comp.teams.map(t => t.id === teamId ? { ...t, ...updates } : t)
+          teams: comp.teams.map(team => team.id === teamId ? { ...team, ...updates } : team)
         };
-      }
-      return comp;
+      }),
+      updatedAt: new Date().toISOString()
     }));
-  };
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const deleteTeam = (competitionId: string, teamId: string) => {
-    setCompetitions(competitions.map(comp => {
-      if (comp.id === competitionId) {
+  const deleteTeam = useCallback((competitionId: string, teamId: string) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.map(comp => {
+        if (comp.id !== competitionId) return comp;
         return {
           ...comp,
-          teams: comp.teams.filter(t => t.id !== teamId)
+          teams: comp.teams.filter(team => team.id !== teamId)
         };
-      }
-      return comp;
+      }),
+      updatedAt: new Date().toISOString()
     }));
-  };
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const createGroup = (competitionId: string, name: string) => {
-    setCompetitions(competitions.map(comp => {
-      if (comp.id === competitionId) {
+  const createGroup = useCallback((competitionId: string, name: string) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.map(comp => {
+        if (comp.id !== competitionId) return comp;
         return {
           ...comp,
           groups: [...(comp.groups || []), { id: uuidv4(), name }]
         };
-      }
-      return comp;
+      }),
+      updatedAt: new Date().toISOString()
     }));
-  };
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const updateGroup = (competitionId: string, groupId: string, updates: Partial<Group>) => {
-    setCompetitions(competitions.map(comp => {
-      if (comp.id === competitionId) {
+  const updateGroup = useCallback((competitionId: string, groupId: string, updates: Partial<Group>) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.map(comp => {
+        if (comp.id !== competitionId) return comp;
         return {
           ...comp,
           groups: (comp.groups || []).map(g => g.id === groupId ? { ...g, ...updates } : g)
         };
-      }
-      return comp;
+      }),
+      updatedAt: new Date().toISOString()
     }));
-  };
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const deleteGroup = (competitionId: string, groupId: string) => {
-    setCompetitions(competitions.map(comp => {
-      if (comp.id === competitionId) {
+  const deleteGroup = useCallback((competitionId: string, groupId: string) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.map(comp => {
+        if (comp.id !== competitionId) return comp;
         return {
           ...comp,
           groups: (comp.groups || []).filter(g => g.id !== groupId),
-          teams: comp.teams.map(t => t.groupId === groupId ? { ...t, groupId: undefined } : t)
+          teams: comp.teams.map(team => team.groupId === groupId ? { ...team, groupId: undefined } : team)
         };
-      }
-      return comp;
+      }),
+      updatedAt: new Date().toISOString()
     }));
-  };
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const moveTeamToGroup = (competitionId: string, teamId: string, groupId: string | undefined) => {
-    setCompetitions(competitions.map(comp => {
-      if (comp.id === competitionId) {
+  const moveTeamToGroup = useCallback((competitionId: string, teamId: string, groupId: string | undefined) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.map(comp => {
+        if (comp.id !== competitionId) return comp;
         return {
           ...comp,
-          teams: comp.teams.map(t => t.id === teamId ? { ...t, groupId } : t)
+          teams: comp.teams.map(team => team.id === teamId ? { ...team, groupId } : team)
         };
-      }
-      return comp;
+      }),
+      updatedAt: new Date().toISOString()
     }));
-  };
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const autoAssignGroups = (competitionId: string, numGroups: number) => {
-    setCompetitions(competitions.map(comp => {
-      if (comp.id === competitionId) {
+  const autoAssignGroups = useCallback((competitionId: string, numGroups: number) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.map(comp => {
+        if (comp.id !== competitionId) return comp;
         const teams = [...comp.teams];
         // Create new groups
         const newGroups: Group[] = Array.from({ length: numGroups }, (_, i) => ({
@@ -334,14 +507,18 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           teams: updatedTeams,
           fixtures: []
         };
-      }
-      return comp;
+      }),
+      updatedAt: new Date().toISOString()
     }));
-  };
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const generateFixtures = (competitionId: string, targetGroupId?: string) => {
-    setCompetitions(competitions.map(comp => {
-      if (comp.id === competitionId) {
+  const generateFixtures = useCallback((competitionId: string, targetGroupId?: string) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.map(comp => {
+        if (comp.id !== competitionId) return comp;
+        
         const generatedFixtures: Fixture[] = [];
 
         const groupsToProcess = (comp.groups && comp.groups.length > 0)
@@ -350,7 +527,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               .map(group => ({
                 id: group.id,
                 name: group.name,
-                teams: comp.teams.filter(t => t.groupId === group.id)
+                teams: comp.teams.filter(team => team.groupId === group.id)
               }))
           : (!targetGroupId ? [{ id: 'default', name: 'All Teams', teams: comp.teams }] : []);
 
@@ -361,7 +538,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           // If odd number of teams, add a dummy team for "bye"
           const hasGhost = teams.length % 2 !== 0;
           if (hasGhost) {
-            teams.push({ id: 'ghost', name: 'Bye' });
+            teams.push({ id: 'ghost', name: 'Bye' } as Team);
           }
 
           const n = teams.length;
@@ -383,7 +560,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                   awayTeamId: away.id,
                   stage: 'Group',
                   description: (group.id !== 'default') ? `${group.name} - R${round + 1}` : `Round ${round + 1}`,
-                  // Don't set duration here so it falls back to group default
                   groupId: (group.id !== 'default') ? group.id : undefined
                 });
               }
@@ -412,27 +588,33 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         };
 
         return withRegeneratedMatchIds(updatedComp);
-      }
-      return comp;
+      }),
+      updatedAt: new Date().toISOString()
     }));
-  };
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const addManualFixture = (competitionId: string, fixture: Omit<Fixture, 'id' | 'competitionId'>) => {
-    setCompetitions(prev => prev.map(comp => {
-      if (comp.id === competitionId) {
+  const addManualFixture = useCallback((competitionId: string, fixture: Omit<Fixture, 'id' | 'competitionId'>) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.map(comp => {
+        if (comp.id !== competitionId) return comp;
         const updatedComp = {
           ...comp,
           fixtures: [...comp.fixtures, { ...fixture, id: uuidv4(), competitionId }]
         };
         return withRegeneratedMatchIds(updatedComp);
-      }
-      return comp;
+      }),
+      updatedAt: new Date().toISOString()
     }));
-  };
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const addFixtures = (competitionId: string, newFixtures: Omit<Fixture, 'id' | 'competitionId'>[]) => {
-    setCompetitions(prev => prev.map(comp => {
-      if (comp.id === competitionId) {
+  const addFixtures = useCallback((competitionId: string, newFixtures: Omit<Fixture, 'id' | 'competitionId'>[]) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.map(comp => {
+        if (comp.id !== competitionId) return comp;
         const fixturesToAdd: Fixture[] = [];
         const fixturesToUpdate = new Map<string, Partial<Fixture>>();
 
@@ -461,77 +643,110 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         };
 
         return withRegeneratedMatchIds(updatedComp);
-      }
-      return comp;
+      }),
+      updatedAt: new Date().toISOString()
     }));
-  };
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const updateFixture = (competitionId: string, fixtureId: string, updates: Partial<Fixture>, shouldRecalculate = false, pitchBreaks: PitchBreakItem[] = []) => {
-    setCompetitions(competitions => {
-      const nextCompetitions = competitions.map(comp => {
-        if (comp.id === competitionId) {
+  const updateFixture = useCallback((competitionId: string, fixtureId: string, updates: Partial<Fixture>, shouldRecalculate = false, pitchBreaks: PitchBreakItem[] = []) => {
+    if (!currentTournamentId) return;
+    
+    setTournaments(prev => {
+      const tournament = prev.find(t => t.id === currentTournamentId);
+      if (!tournament) return prev;
+      
+      const nextTournament = {
+        ...tournament,
+        competitions: tournament.competitions.map(comp => {
+          if (comp.id !== competitionId) return comp;
           const updatedComp = {
             ...comp,
             fixtures: comp.fixtures.map(f => f.id === fixtureId ? { ...f, ...updates } : f)
           };
           return withRegeneratedMatchIds(updatedComp);
-        }
-        return comp;
-      });
+        }),
+        updatedAt: new Date().toISOString()
+      };
 
       if (shouldRecalculate) {
-        const recalculated = nextCompetitions.map(comp => {
-          if (comp.id === competitionId) {
-            return recalculateCompetitionSchedule(comp, pitchBreaks);
-          }
-          return comp;
-        });
-        return enforceNoPitchOverlaps(recalculated, pitchBreaks);
+        const recalculatedComp = recalculateCompetitionSchedule(
+          nextTournament.competitions.find(c => c.id === competitionId)!,
+          nextTournament.pitches,
+          pitchBreaks
+        );
+        nextTournament.competitions = nextTournament.competitions.map(c => 
+          c.id === competitionId ? recalculatedComp : c
+        );
+        
+        const enforced = enforceNoPitchOverlaps(nextTournament, pitchBreaks);
+        return prev.map(t => t.id === currentTournamentId ? enforced : t);
       }
 
-      return nextCompetitions;
+      return prev.map(t => t.id === currentTournamentId ? nextTournament : t);
     });
-  };
+  }, [currentTournamentId]);
 
-  const deleteFixture = (competitionId: string, fixtureId: string, shouldRecalculate = false, pitchBreaks: PitchBreakItem[] = []) => {
-    setCompetitions(competitions => {
-      const nextCompetitions = competitions.map(comp => {
-        if (comp.id === competitionId) {
+  const deleteFixture = useCallback((competitionId: string, fixtureId: string, shouldRecalculate = false, pitchBreaks: PitchBreakItem[] = []) => {
+    if (!currentTournamentId) return;
+    
+    setTournaments(prev => {
+      const tournament = prev.find(t => t.id === currentTournamentId);
+      if (!tournament) return prev;
+      
+      const nextTournament = {
+        ...tournament,
+        competitions: tournament.competitions.map(comp => {
+          if (comp.id !== competitionId) return comp;
           const updatedComp = {
             ...comp,
             fixtures: comp.fixtures.filter(f => f.id !== fixtureId)
           };
           return withRegeneratedMatchIds(updatedComp);
-        }
-        return comp;
-      });
+        }),
+        updatedAt: new Date().toISOString()
+      };
 
       if (shouldRecalculate) {
-        const recalculated = nextCompetitions.map(comp => {
-          if (comp.id === competitionId) {
-            return recalculateCompetitionSchedule(comp, pitchBreaks);
-          }
-          return comp;
-        });
-        return enforceNoPitchOverlaps(recalculated, pitchBreaks);
+        const recalculatedComp = recalculateCompetitionSchedule(
+          nextTournament.competitions.find(c => c.id === competitionId)!,
+          nextTournament.pitches,
+          pitchBreaks
+        );
+        nextTournament.competitions = nextTournament.competitions.map(c => 
+          c.id === competitionId ? recalculatedComp : c
+        );
+        
+        const enforced = enforceNoPitchOverlaps(nextTournament, pitchBreaks);
+        return prev.map(t => t.id === currentTournamentId ? enforced : t);
       }
 
-      return nextCompetitions;
+      return prev.map(t => t.id === currentTournamentId ? nextTournament : t);
     });
-  };
+  }, [currentTournamentId]);
 
-  const addPitch = (name: string, startTime?: string, endTime?: string) => {
-    setPitches([...pitches, { id: uuidv4(), name, startTime, endTime }]);
-  };
+  const addPitch = useCallback((name: string, startTime?: string, endTime?: string) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      pitches: [...t.pitches, { id: uuidv4(), name, startTime, endTime }],
+      updatedAt: new Date().toISOString()
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const updatePitch = (id: string, updates: Partial<Pitch>) => {
-    setPitches(pitches.map(p => p.id === id ? { ...p, ...updates } : p));
-  };
+  const updatePitch = useCallback((id: string, updates: Partial<Pitch>) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      pitches: t.pitches.map(p => p.id === id ? { ...p, ...updates } : p),
+      updatedAt: new Date().toISOString()
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const deletePitch = (id: string) => {
-    setPitches(pitches.filter(p => p.id !== id));
-    setCompetitions(prevCompetitions =>
-      prevCompetitions.map(comp => {
+  const deletePitch = useCallback((id: string) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => {
+      const filteredPitches = t.pitches.filter(p => p.id !== id);
+      const updatedComps = t.competitions.map(comp => {
         const nextGroups = (comp.groups || []).map((group) => {
           const currentPitchIds = getGroupPitchIds(group);
           if (!currentPitchIds.includes(id)) return group;
@@ -559,9 +774,16 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             };
           })
         };
-      })
-    );
-  };
+      });
+      
+      return {
+        ...t,
+        pitches: filteredPitches,
+        competitions: updatedComps,
+        updatedAt: new Date().toISOString()
+      };
+    });
+  }, [currentTournamentId, updateCurrentTournament]);
 
   const parseTimeToMinutes = (time?: string, fallback: number = 10 * 60) => {
     if (!time) return fallback;
@@ -623,7 +845,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return map;
   };
 
-  const enforceNoPitchOverlaps = (competitionList: Competition[], pitchBreaks: PitchBreakItem[] = []): Competition[] => {
+  const enforceNoPitchOverlaps = (tournament: Tournament, pitchBreaks: PitchBreakItem[] = []): Tournament => {
     type PitchFixtureRef = {
       competitionId: string;
       fixtureId: string;
@@ -635,12 +857,12 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     const pitchStartById = new Map(
-      pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)])
+      tournament.pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)])
     );
     const fixturesByPitch = new Map<string, PitchFixtureRef[]>();
     let order = 0;
 
-    competitionList.forEach((competition) => {
+    tournament.competitions.forEach((competition) => {
       const groupsById = new Map((competition.groups || []).map((group) => [group.id, group]));
 
       competition.fixtures.forEach((fixture) => {
@@ -700,21 +922,24 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
     });
 
-    return competitionList.map((competition) => {
-      const updates = updatesByCompetitionId.get(competition.id);
-      if (!updates || updates.size === 0) return competition;
+    return {
+      ...tournament,
+      competitions: tournament.competitions.map((competition) => {
+        const updates = updatesByCompetitionId.get(competition.id);
+        if (!updates || updates.size === 0) return competition;
 
-      return {
-        ...competition,
-        fixtures: competition.fixtures.map((fixture) => {
-          const fixtureUpdates = updates.get(fixture.id);
-          return fixtureUpdates ? { ...fixture, ...fixtureUpdates } : fixture;
-        }),
-      };
-    });
+        return {
+          ...competition,
+          fixtures: competition.fixtures.map((fixture) => {
+            const fixtureUpdates = updates.get(fixture.id);
+            return fixtureUpdates ? { ...fixture, ...fixtureUpdates } : fixture;
+          }),
+        };
+      }),
+    };
   };
 
-  const recalculateCompetitionSchedule = (competition: Competition, pitchBreaks: PitchBreakItem[] = []): Competition => {
+  const recalculateCompetitionSchedule = (competition: Competition, pitches: Pitch[], pitchBreaks: PitchBreakItem[] = []): Competition => {
     const KNOCKOUT_TIER: Record<string, number> = {
       'Round of 16': 0,
       'Quarter-Final': 1,
@@ -819,17 +1044,32 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   };
 
-  const recalculateSchedule = (competitionId: string, pitchBreaks: PitchBreakItem[] = []) => {
-    setCompetitions((prevCompetitions) => {
-      const scheduledCompetitions = prevCompetitions.map((competition) => {
-        if (competition.id !== competitionId) return competition;
-        return recalculateCompetitionSchedule(competition, pitchBreaks);
-      });
-      return enforceNoPitchOverlaps(scheduledCompetitions, pitchBreaks);
+  const recalculateSchedule = useCallback((competitionId: string, pitchBreaks: PitchBreakItem[] = []) => {
+    if (!currentTournamentId) return;
+    
+    setTournaments(prev => {
+      const tournament = prev.find(t => t.id === currentTournamentId);
+      if (!tournament) return prev;
+      
+      const recalculatedComp = recalculateCompetitionSchedule(
+        tournament.competitions.find(c => c.id === competitionId)!,
+        tournament.pitches,
+        pitchBreaks
+      );
+      
+      const updatedTournament = {
+        ...tournament,
+        competitions: tournament.competitions.map(c => 
+          c.id === competitionId ? recalculatedComp : c
+        )
+      };
+      
+      const enforced = enforceNoPitchOverlaps(updatedTournament, pitchBreaks);
+      return prev.map(t => t.id === currentTournamentId ? enforced : t);
     });
-  };
+  }, [currentTournamentId]);
 
-  const autoScheduleMatches = (competitionId: string, pitchBreaks: PitchBreakItem[] = []) => {
+  const autoScheduleMatches = useCallback((competitionId: string, pitchBreaks: PitchBreakItem[] = []) => {
     const KNOCKOUT_TIER: Record<string, number> = {
       'Round of 16': 0,
       'Quarter-Final': 1,
@@ -838,16 +1078,21 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'Final': 3,
     };
 
-    setCompetitions((prevCompetitions) => {
-      const scheduledCompetitions = prevCompetitions.map((competition) => {
+    if (!currentTournamentId) return;
+    
+    setTournaments(prev => {
+      const tournament = prev.find(t => t.id === currentTournamentId);
+      if (!tournament) return prev;
+      
+      const scheduledCompetitions = tournament.competitions.map((competition) => {
         if (competition.id !== competitionId || competition.fixtures.length === 0) {
           return competition;
         }
 
-        const fallbackPitchId = pitches[0]?.id;
-        const validPitchIds = new Set(pitches.map((pitch) => pitch.id));
+        const fallbackPitchId = tournament.pitches[0]?.id;
+        const validPitchIds = new Set(tournament.pitches.map((pitch) => pitch.id));
         const pitchStartById = new Map(
-          pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)])
+          tournament.pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)])
         );
         const groupsById = new Map((competition.groups || []).map((group) => [group.id, group]));
         const fixtureUpdates = new Map<string, Partial<Fixture>>();
@@ -896,7 +1141,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         });
 
         const pitchCursorById = new Map(
-          pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)])
+          tournament.pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)])
         );
         const breakIntervals = buildBreakIntervalsByPitch(pitchBreaks);
         let pending = true;
@@ -927,7 +1172,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (knockoutFixtures.length > 0) {
           const knockoutPitchPool = usedPitchIds.size > 0
             ? Array.from(usedPitchIds)
-            : pitches.map((p) => p.id);
+            : tournament.pitches.map((p) => p.id);
 
           let groupStageEndTime = 0;
           for (const [, cursor] of pitchCursorById) {
@@ -994,92 +1239,119 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
 
       const withMatchIds = scheduledCompetitions.map(comp => withRegeneratedMatchIds(comp));
-      return enforceNoPitchOverlaps(withMatchIds, pitchBreaks);
+      
+      const updatedTournament = {
+        ...tournament,
+        competitions: withMatchIds
+      };
+      
+      const enforced = enforceNoPitchOverlaps(updatedTournament, pitchBreaks);
+      return prev.map(t => t.id === currentTournamentId ? enforced : t);
     });
-  };
+  }, [currentTournamentId]);
 
-  const resetAllSchedules = () => {
-    setCompetitions((prev) =>
-      prev.map((comp) => ({
+  const resetAllSchedules = useCallback(() => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      competitions: t.competitions.map((comp) => ({
         ...comp,
         fixtures: comp.fixtures.map((f) => ({
           ...f,
           pitchId: undefined,
           startTime: undefined,
         })),
-      }))
-    );
-  };
+      })),
+      updatedAt: new Date().toISOString()
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
 
-  const reorderFixtureToPitch = (fixtureId: string, targetPitchId: string, targetIndex: number = -1) => {
-    let targetFixture: Fixture | undefined;
-    let sourceCompId: string | undefined;
+  const reorderFixtureToPitch = useCallback((fixtureId: string, targetPitchId: string, targetIndex: number = -1) => {
+    if (!currentTournamentId) return;
+    
+    setTournaments(prev => {
+      const tournament = prev.find(t => t.id === currentTournamentId);
+      if (!tournament) return prev;
+      
+      let targetFixture: Fixture | undefined;
+      let sourceCompId: string | undefined;
 
-    for (const comp of competitions) {
-      const f = comp.fixtures.find(fx => fx.id === fixtureId);
-      if (f) {
-        targetFixture = f;
-        sourceCompId = comp.id;
-        break;
+      for (const comp of tournament.competitions) {
+        const f = comp.fixtures.find(fx => fx.id === fixtureId);
+        if (f) {
+          targetFixture = f;
+          sourceCompId = comp.id;
+          break;
+        }
       }
-    }
 
-    if (!targetFixture || !sourceCompId) return;
+      if (!targetFixture || !sourceCompId) return prev;
 
-    const pitchFixtures = competitions
-      .flatMap(c => c.fixtures)
-      .filter(f => f.pitchId === targetPitchId && f.id !== fixtureId)
-      .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+      const pitchFixtures = tournament.competitions
+        .flatMap(c => c.fixtures)
+        .filter(f => f.pitchId === targetPitchId && f.id !== fixtureId)
+        .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
 
-    if (targetIndex >= 0 && targetIndex <= pitchFixtures.length) {
-      pitchFixtures.splice(targetIndex, 0, targetFixture);
-    } else {
-      pitchFixtures.push(targetFixture);
-    }
+      if (targetIndex >= 0 && targetIndex <= pitchFixtures.length) {
+        pitchFixtures.splice(targetIndex, 0, targetFixture);
+      } else {
+        pitchFixtures.push(targetFixture);
+      }
 
-    const pitch = pitches.find(p => p.id === targetPitchId);
-    let currentTimeMinutes = 10 * 60; // Default 10:00
-    if (pitch && pitch.startTime) {
-      const [h, m] = pitch.startTime.split(':').map(Number);
-      currentTimeMinutes = h * 60 + m;
-    }
+      const pitch = tournament.pitches.find(p => p.id === targetPitchId);
+      let currentTimeMinutes = 10 * 60; // Default 10:00
+      if (pitch && pitch.startTime) {
+        const [h, m] = pitch.startTime.split(':').map(Number);
+        currentTimeMinutes = h * 60 + m;
+      }
 
-    const updates = new Map<string, Partial<Fixture>>();
+      const updates = new Map<string, Partial<Fixture>>();
 
-    pitchFixtures.forEach(f => {
-      const hours = Math.floor(currentTimeMinutes / 60);
-      const minutes = currentTimeMinutes % 60;
-      const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-      const duration = f.duration || 20;
-      const slack = 5;
+      pitchFixtures.forEach(f => {
+        const hours = Math.floor(currentTimeMinutes / 60);
+        const minutes = currentTimeMinutes % 60;
+        const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+        const duration = f.duration || 20;
+        const slack = 5;
 
-      updates.set(f.id, {
-        pitchId: targetPitchId,
-        startTime: timeString
+        updates.set(f.id, {
+          pitchId: targetPitchId,
+          startTime: timeString
+        });
+
+        currentTimeMinutes += duration + slack;
       });
 
-      currentTimeMinutes += duration + slack;
-    });
+      const updatedTournament = {
+        ...tournament,
+        competitions: tournament.competitions.map(comp => {
+          const needsUpdate = comp.fixtures.some(f => updates.has(f.id));
+          if (!needsUpdate) return comp;
 
-    setCompetitions(competitions.map(comp => {
-      const needsUpdate = comp.fixtures.some(f => updates.has(f.id));
-      if (!needsUpdate) return comp;
-
-      return {
-        ...comp,
-        fixtures: comp.fixtures.map(f => {
-          if (updates.has(f.id)) {
-            return { ...f, ...updates.get(f.id) };
-          }
-          return f;
+          return {
+            ...comp,
+            fixtures: comp.fixtures.map(f => {
+              if (updates.has(f.id)) {
+                return { ...f, ...updates.get(f.id) };
+              }
+              return f;
+            })
+          };
         })
       };
-    }));
-  };
+      
+      return prev.map(t => t.id === currentTournamentId ? updatedTournament : t);
+    });
+  }, [currentTournamentId]);
 
-  const batchUpdateFixtures = (updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[], shouldRecalculate = false, pitchBreaks: PitchBreakItem[] = []) => {
-    setCompetitions(prevCompetitions => {
-      const nextCompetitions = prevCompetitions.map(comp => {
+  const batchUpdateFixtures = useCallback((updates: { competitionId: string, fixtureId: string, updates: Partial<Fixture> }[], shouldRecalculate = false, pitchBreaks: PitchBreakItem[] = []) => {
+    if (!currentTournamentId) return;
+    
+    setTournaments(prev => {
+      const tournament = prev.find(t => t.id === currentTournamentId);
+      if (!tournament) return prev;
+      
+      const nextCompetitions = tournament.competitions.map(comp => {
         const compUpdates = updates.filter(u => u.competitionId === comp.id);
         if (compUpdates.length === 0) return comp;
 
@@ -1099,28 +1371,40 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return withRegeneratedMatchIds(updatedComp);
       });
 
+      let updatedTournament = {
+        ...tournament,
+        competitions: nextCompetitions
+      };
+
       if (shouldRecalculate) {
          const affectedCompetitionIds = new Set(updates.map(u => u.competitionId));
-         const recalculated = nextCompetitions.map(comp => {
+         const recalculated = updatedTournament.competitions.map(comp => {
             if (affectedCompetitionIds.has(comp.id)) {
-               return recalculateCompetitionSchedule(comp, pitchBreaks);
+               return recalculateCompetitionSchedule(comp, updatedTournament.pitches, pitchBreaks);
             }
             return comp;
          });
-         return enforceNoPitchOverlaps(recalculated, pitchBreaks);
+         updatedTournament = { ...updatedTournament, competitions: recalculated };
+         updatedTournament = enforceNoPitchOverlaps(updatedTournament, pitchBreaks);
       }
 
-      return nextCompetitions;
+      return prev.map(t => t.id === currentTournamentId ? updatedTournament : t);
     });
-  };
+  }, [currentTournamentId]);
 
   return (
     <TournamentContext.Provider value={{
+      tournaments,
+      currentTournament,
+      setCurrentTournament,
+      addTournament,
+      deleteTournament,
+      updateTournament,
       competitions,
-      pitches,
-      clubs,
       addCompetition,
       deleteCompetition,
+      updateCompetition,
+      clubs,
       addClub,
       updateClub,
       deleteClub,
@@ -1137,13 +1421,13 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       addFixtures,
       updateFixture,
       deleteFixture,
+      pitches,
       addPitch,
       updatePitch,
       deletePitch,
       autoScheduleMatches,
       resetAllSchedules,
       reorderFixtureToPitch,
-      updateCompetition,
       batchUpdateFixtures,
       recalculateSchedule
     }}>
