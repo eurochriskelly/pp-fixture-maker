@@ -395,9 +395,6 @@ const Clubs = () => {
         <div className="container mx-auto p-4 max-w-6xl space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold flex items-center gap-2">
-                        <Shield className="h-8 w-8" /> Clubs
-                    </h1>
                     <p className="text-muted-foreground">Manage participating clubs and their details.</p>
                 </div>
                 <ClubDialog 

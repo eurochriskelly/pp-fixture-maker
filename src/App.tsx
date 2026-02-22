@@ -4,9 +4,14 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Index from "./pages/Index";
+import Tournaments from "./pages/Tournaments";
 import Schedule from "./pages/Schedule";
 import Clubs from "./pages/Clubs";
+import ClubsMap from "./pages/ClubsMap";
 import ByPitch from "./pages/ByPitch";
+import PlayTime from "./pages/PlayTime";
+import ClubContributions from "./pages/ClubContributions";
+import Officials from "./pages/Officials";
 import NotFound from "./pages/NotFound";
 import { TournamentProvider } from "@/context/TournamentContext";
 import SidebarLayout from "./components/SidebarLayout";
@@ -26,9 +31,19 @@ const App = () => (
           <Routes>
             <Route element={<SidebarLayout />}>
               <Route path="/" element={<Index />} />
-              <Route path="/schedule" element={<Schedule />} />
-              <Route path="/clubs" element={<Clubs />} />
-              <Route path="/by-pitch" element={<ByPitch />} />
+              <Route path="/tournaments" element={<Tournaments />} />
+              <Route path="/scheduler" element={<Navigate to="/scheduler/timeline" replace />} />
+              <Route path="/scheduler/timeline" element={<Schedule />} />
+              <Route path="/clubs" element={<Navigate to="/clubs/participants" replace />} />
+              <Route path="/clubs/participants" element={<Clubs />} />
+              <Route path="/clubs/map" element={<ClubsMap />} />
+              <Route path="/officials" element={<Navigate to="/officials/organisers" replace />} />
+              <Route path="/officials/organisers" element={<Officials />} />
+              <Route path="/officials/referees" element={<Officials />} />
+              <Route path="/officials/coordinators" element={<Officials />} />
+              <Route path="/reports/by-pitch" element={<ByPitch />} />
+              <Route path="/reports/play-time" element={<PlayTime />} />
+              <Route path="/reports/club-contributions" element={<ClubContributions />} />
               <Route path="/competition/:id" element={<Navigate to="groups" replace />} />
               <Route path="/competition/:id/groups" element={<CompetitionGroups />} />
               <Route path="/competition/:id/fixtures" element={<CompetitionFixtures />} />

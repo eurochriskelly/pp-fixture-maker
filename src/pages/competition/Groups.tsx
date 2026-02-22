@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, RefreshCw } from 'lucide-react';
+import { Plus, RefreshCw, Shuffle } from 'lucide-react';
 import { GroupList } from '@/components/GroupList';
 import { CompetitionHeader } from './CompetitionHeader';
 
@@ -15,6 +15,7 @@ const CompetitionGroups = () => {
     competitions,
     addTeam,
     autoAssignGroups,
+    updateCompetition,
   } = useTournament();
 
   const competition = competitions.find(c => c.id === id);
@@ -29,6 +30,29 @@ const CompetitionGroups = () => {
   const handleAddTeam = () => {
     addTeam(competition.id, newTeamName || undefined);
     setNewTeamName('');
+  };
+
+  const handleRandomizeGroups = () => {
+    const teams = [...competition.teams];
+    // Fisher-Yates shuffle
+    for (let i = teams.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [teams[i], teams[j]] = [teams[j], teams[i]];
+    }
+
+    // Distribute shuffled teams into groups
+    const groups = Array.from({ length: numGroups }, (_, i) => ({
+      id: `group-${i + 1}`,
+      name: `Group ${String.fromCharCode(65 + i)}`,
+      teams: [] as typeof teams,
+    }));
+
+    teams.forEach((team, index) => {
+      const groupIndex = index % numGroups;
+      groups[groupIndex].teams.push(team);
+    });
+
+    updateCompetition(competition.id, { groups });
   };
 
   return (
@@ -68,6 +92,9 @@ const CompetitionGroups = () => {
               </Select>
               <Button variant="outline" onClick={() => autoAssignGroups(competition.id, numGroups)}>
                 <RefreshCw className="mr-2 h-4 w-4" /> Auto Group
+              </Button>
+              <Button variant="outline" onClick={handleRandomizeGroups}>
+                <Shuffle className="mr-2 h-4 w-4" /> Randomize
               </Button>
             </div>
           </div>
