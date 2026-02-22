@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Plus, RefreshCw, Shuffle } from 'lucide-react';
 import { GroupList } from '@/components/GroupList';
 import { CompetitionHeader } from './CompetitionHeader';
+import { Group } from '@/lib/types';
+import { v4 as uuidv4 } from 'uuid';
 
 const CompetitionGroups = () => {
   const { id } = useParams<{ id: string }>();
@@ -33,26 +35,30 @@ const CompetitionGroups = () => {
   };
 
   const handleRandomizeGroups = () => {
-    const teams = [...competition.teams];
-    // Fisher-Yates shuffle
-    for (let i = teams.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [teams[i], teams[j]] = [teams[j], teams[i]];
-    }
-
-    // Distribute shuffled teams into groups
-    const groups = Array.from({ length: numGroups }, (_, i) => ({
-      id: `group-${i + 1}`,
+    // Create new groups with fresh IDs
+    const newGroups: Group[] = Array.from({ length: numGroups }, (_, i) => ({
+      id: uuidv4(),
       name: `Group ${String.fromCharCode(65 + i)}`,
-      teams: [] as typeof teams,
     }));
 
-    teams.forEach((team, index) => {
-      const groupIndex = index % numGroups;
-      groups[groupIndex].teams.push(team);
-    });
+    // Shuffle teams
+    const shuffledTeams = [...competition.teams];
+    for (let i = shuffledTeams.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffledTeams[i], shuffledTeams[j]] = [shuffledTeams[j], shuffledTeams[i]];
+    }
 
-    updateCompetition(competition.id, { groups });
+    // Assign groupId to each team based on shuffled order
+    const updatedTeams = shuffledTeams.map((team, index) => ({
+      ...team,
+      groupId: newGroups[index % numGroups].id,
+    }));
+
+    // Update competition with new groups and updated teams
+    updateCompetition(competition.id, { 
+      groups: newGroups,
+      teams: updatedTeams 
+    });
   };
 
   return (
