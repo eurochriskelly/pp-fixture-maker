@@ -15,6 +15,7 @@ import PlayTime from "./pages/PlayTime";
 import ClubContributions from "./pages/ClubContributions";
 import Officials from "./pages/Officials";
 import Locations from "./pages/Locations";
+import LocationsReport from "./pages/LocationsReport";
 import NotFound from "./pages/NotFound";
 import Overview from "./pages/Overview";
 import { TournamentProvider } from "@/context/TournamentContext";
@@ -50,6 +51,7 @@ const App = () => (
               <Route path="/reports/by-pitch" element={<ByPitch />} />
               <Route path="/reports/by-team" element={<ByTeam />} />
               <Route path="/reports/print" element={<ReportsPrint />} />
+              <Route path="/reports/locations" element={<LocationsReport />} />
               <Route path="/reports/play-time" element={<PlayTime />} />
               <Route path="/reports/club-contributions" element={<ClubContributions />} />
               <Route path="/competition/:id" element={<Navigate to="groups" replace />} />
