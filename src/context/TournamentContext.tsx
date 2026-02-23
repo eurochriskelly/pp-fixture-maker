@@ -11,6 +11,7 @@ interface TournamentContextType {
   
   // Tournament Actions
   addTournament: (name: string, description?: string) => Tournament;
+  importTournament: (tournament: Tournament) => Tournament;
   deleteTournament: (id: string) => void;
   updateTournament: (id: string, updates: Partial<Tournament>) => void;
   
@@ -52,6 +53,7 @@ interface TournamentContextType {
 
   // Scheduling
   autoScheduleMatches: (competitionId: string, pitchBreaks?: PitchBreakItem[]) => void;
+  autoAssignUmpires: (competitionId?: string) => void;
   resetAllSchedules: () => void;
   updateGroup: (competitionId: string, groupId: string, updates: Partial<Group>) => void;
   reorderFixtureToPitch: (fixtureId: string, targetPitchId: string, targetIndex?: number) => void;
@@ -67,6 +69,17 @@ export const useTournament = () => {
     throw new Error('useTournament must be used within a TournamentProvider');
   }
   return context;
+};
+
+export const resolveUmpireDisplay = (
+  fixture: Fixture,
+  teamNameById: Map<string, string>
+): string => {
+  if (!fixture.umpireTeam) return 'TBD';
+  if (fixture.umpireTeam.type === 'by-id') {
+    return teamNameById.get(fixture.umpireTeam.value) || 'TBD';
+  }
+  return fixture.umpireTeam.value;
 };
 
 // Helper: Regenerate match IDs for a competition
@@ -237,6 +250,29 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setTournaments(prev => [...prev, newTournament]);
     return newTournament;
   }, []);
+
+  const importTournament = useCallback((tournament: Tournament): Tournament => {
+    const now = new Date().toISOString();
+    const existingIds = new Set(tournaments.map(t => t.id));
+    const shouldReplaceId = !tournament.id || existingIds.has(tournament.id);
+
+    const normalizedTournament: Tournament = {
+      ...tournament,
+      id: shouldReplaceId ? uuidv4() : tournament.id,
+      name: tournament.name?.trim() || 'Imported Tournament',
+      createdAt: tournament.createdAt || now,
+      updatedAt: now,
+      competitions: (tournament.competitions || []).map((comp, index) => ({
+        ...comp,
+        color: comp.color || generateCompetitionColor(index)
+      })),
+      pitches: tournament.pitches || [],
+      clubs: tournament.clubs || []
+    };
+
+    setTournaments(prev => [...prev, normalizedTournament]);
+    return normalizedTournament;
+  }, [tournaments]);
 
   const deleteTournament = useCallback((id: string) => {
     setTournaments(prev => {
@@ -1250,6 +1286,104 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   }, [currentTournamentId]);
 
+  const autoAssignUmpires = useCallback((competitionId?: string) => {
+    if (!currentTournamentId) return;
+
+    setTournaments(prev => {
+      const tournament = prev.find(t => t.id === currentTournamentId);
+      if (!tournament) return prev;
+
+      const scopedCompetitionIds = new Set(
+        competitionId ? [competitionId] : tournament.competitions.map((comp) => comp.id)
+      );
+
+      const nextTournament = {
+        ...tournament,
+        competitions: tournament.competitions.map((competition) => {
+          if (!scopedCompetitionIds.has(competition.id)) return competition;
+
+          const allFixtures = competition.fixtures;
+          const fixtureById = new Map(allFixtures.map((fixture) => [fixture.id, fixture]));
+          const pitchFixtures = new Map<string, Fixture[]>();
+
+          allFixtures.forEach((fixture) => {
+            if (!fixture.pitchId || !fixture.startTime) return;
+            if (!pitchFixtures.has(fixture.pitchId)) {
+              pitchFixtures.set(fixture.pitchId, []);
+            }
+            pitchFixtures.get(fixture.pitchId)!.push(fixture);
+          });
+
+          pitchFixtures.forEach((fixtures) => {
+            fixtures.sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime));
+          });
+
+          const umpireAssignments = new Map<string, Fixture['umpireTeam']>();
+          const teamIds = competition.teams.map((team) => team.id);
+          const scheduledWithTimes = allFixtures.filter((fixture) => fixture.startTime);
+          const bufferMinutes = 30;
+
+          pitchFixtures.forEach((fixturesOnPitch) => {
+            fixturesOnPitch.forEach((fixture, index) => {
+              if (index === 0) {
+                const fixtureStart = parseTimeToMinutes(fixture.startTime);
+                const candidateTeamId = teamIds.find((teamId) => {
+                  if (teamId === fixture.homeTeamId || teamId === fixture.awayTeamId) return false;
+
+                  const hasConflict = scheduledWithTimes.some((candidateFixture) => {
+                    if (!candidateFixture.startTime) return false;
+                    if (
+                      candidateFixture.homeTeamId !== teamId &&
+                      candidateFixture.awayTeamId !== teamId
+                    ) {
+                      return false;
+                    }
+
+                    const candidateStart = parseTimeToMinutes(candidateFixture.startTime);
+                    return Math.abs(candidateStart - fixtureStart) < bufferMinutes;
+                  });
+
+                  return !hasConflict;
+                });
+
+                if (candidateTeamId) {
+                  umpireAssignments.set(fixture.id, { type: 'by-id', value: candidateTeamId });
+                } else {
+                  umpireAssignments.set(fixture.id, undefined);
+                }
+                return;
+              }
+
+              const previousFixture = fixtureById.get(fixturesOnPitch[index - 1].id);
+              if (previousFixture?.matchId) {
+                umpireAssignments.set(fixture.id, {
+                  type: 'by-match',
+                  value: `Loser ${previousFixture.matchId}`
+                });
+              } else {
+                umpireAssignments.set(fixture.id, undefined);
+              }
+            });
+          });
+
+          return {
+            ...competition,
+            fixtures: allFixtures.map((fixture) => {
+              if (!umpireAssignments.has(fixture.id)) return fixture;
+              return {
+                ...fixture,
+                umpireTeam: umpireAssignments.get(fixture.id)
+              };
+            }),
+          };
+        }),
+        updatedAt: new Date().toISOString(),
+      };
+
+      return prev.map(t => t.id === currentTournamentId ? nextTournament : t);
+    });
+  }, [currentTournamentId]);
+
   const resetAllSchedules = useCallback(() => {
     if (!currentTournamentId) return;
     updateCurrentTournament(t => ({
@@ -1398,6 +1532,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       currentTournament,
       setCurrentTournament,
       addTournament,
+      importTournament,
       deleteTournament,
       updateTournament,
       competitions,
@@ -1426,6 +1561,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       updatePitch,
       deletePitch,
       autoScheduleMatches,
+      autoAssignUmpires,
       resetAllSchedules,
       reorderFixtureToPitch,
       batchUpdateFixtures,
