@@ -31,6 +31,7 @@ import { useTournament } from "@/context/TournamentContext";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
 import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList, Shield, Grid3x3, Users, Info, MapPin } from "lucide-react";
 import { CompetitionBadge } from "@/components/CompetitionBadge";
+import { StorageIndicator } from "@/components/StorageIndicator";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -540,7 +541,8 @@ export default function SidebarLayout() {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter>
-          <div className="p-2 text-xs text-center text-muted-foreground">
+          <StorageIndicator />
+          <div className="px-2 pb-2 text-xs text-center text-muted-foreground">
             Pitch Perfect
           </div>
         </SidebarFooter>
