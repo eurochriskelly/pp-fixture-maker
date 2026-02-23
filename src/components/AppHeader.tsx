@@ -157,25 +157,25 @@ export function AppHeader() {
         onSuccess={handleAuthSuccess}
       />
 
-      <header className="h-16 bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-700 flex items-center justify-between px-4 shrink-0">
+      <header className="relative z-20 h-16 border-b border-slate-200 bg-white/95 backdrop-blur-sm flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-4">
           {/* Logo */}
           <div className="flex items-center gap-2">
-            <div className="bg-white/20 p-1.5 rounded-lg">
-              <Trophy className="h-5 w-5 text-white" />
+            <div className="bg-sky-100 p-1.5 rounded-lg">
+              <Trophy className="h-5 w-5 text-sky-700" />
             </div>
-            <span className="font-bold text-white hidden sm:inline">Tournament Maker</span>
+            <span className="font-bold text-slate-900 hidden sm:inline">Tournament Maker</span>
           </div>
 
           {/* Tournament Selector */}
           {currentTournament && (
             <div className="flex items-center gap-2 ml-4">
-              <div className="h-6 w-px bg-white/20" />
+              <div className="h-6 w-px bg-slate-200" />
               <DropdownMenu open={switchDialogOpen} onOpenChange={setSwitchDialogOpen}>
                 <DropdownMenuTrigger asChild>
                   <Button 
                     variant="ghost" 
-                    className="text-white hover:bg-white/10 flex items-center gap-2"
+                    className="text-slate-700 hover:bg-slate-100 flex items-center gap-2"
                   >
                     <span className="font-medium truncate max-w-[200px]">
                       {currentTournament.name}
@@ -250,7 +250,7 @@ export function AppHeader() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-white hover:bg-white/10 hidden md:flex"
+                className="text-slate-700 hover:bg-slate-100 hidden md:flex"
                 onClick={handleCreateClick}
               >
                 <Plus className="h-4 w-4 mr-1" />
@@ -259,13 +259,13 @@ export function AppHeader() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-white hover:bg-white/10 hidden md:flex"
+                className="text-slate-700 hover:bg-slate-100 hidden md:flex"
                 onClick={() => setSwitchDialogOpen(true)}
               >
                 <FolderOpen className="h-4 w-4 mr-1" />
                 Open
               </Button>
-              <div className="h-6 w-px bg-white/20 hidden md:block" />
+              <div className="h-6 w-px bg-slate-200 hidden md:block" />
             </>
           )}
 
@@ -275,9 +275,9 @@ export function AppHeader() {
               <DropdownMenuTrigger asChild>
                 <Button 
                   variant="ghost" 
-                  className="text-white hover:bg-white/10 flex items-center gap-2"
+                  className="text-slate-700 hover:bg-slate-100 flex items-center gap-2"
                 >
-                  <div className="bg-white/20 p-1.5 rounded-full">
+                  <div className="bg-slate-100 p-1.5 rounded-full">
                     <User className="h-4 w-4" />
                   </div>
                   <span className="hidden sm:inline">{user?.name}</span>
@@ -295,7 +295,7 @@ export function AppHeader() {
           ) : (
             <Button 
               variant="ghost" 
-              className="text-white hover:bg-white/10"
+              className="text-slate-700 hover:bg-slate-100"
               onClick={() => setAuthDialogOpen(true)}
             >
               <User className="h-4 w-4 mr-2" />
@@ -308,7 +308,7 @@ export function AppHeader() {
             <Button
               variant="ghost"
               size="icon"
-              className="text-white hover:bg-white/10"
+              className="text-slate-700 hover:bg-slate-100"
               onClick={closeTournament}
               title="Close Tournament"
             >
@@ -348,7 +348,7 @@ export function AppHeader() {
             <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreateTournament} disabled={!newTournamentName.trim()}>
+            <Button className="bg-sky-700 hover:bg-sky-800" onClick={handleCreateTournament} disabled={!newTournamentName.trim()}>
               Create Tournament
             </Button>
           </div>

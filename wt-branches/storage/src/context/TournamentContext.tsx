@@ -9,6 +9,7 @@ interface TournamentContextType {
   tournaments: Tournament[];
   currentTournament: Tournament | null;
   setCurrentTournament: (tournament: Tournament | null) => void;
+  closeTournament: () => void;
   
   // Tournament Actions
   addTournament: (name: string, description?: string) => Tournament;
@@ -225,28 +226,18 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   });
 
   const [currentTournamentId, setCurrentTournamentId] = useState<string | null>(() => {
-    // First check if there's a saved current tournament ID
+    // Check if there's a saved current tournament ID
     const saved = localStorage.getItem('tournament_maker_current_id');
     if (saved) return saved;
     
-    // If we just migrated, select the first tournament
+    // If we have tournaments from storage, don't auto-select - let user choose
     const savedTournaments = localStorage.getItem('tournament_maker_tournaments');
     if (savedTournaments) {
-      const tournaments: Tournament[] = JSON.parse(savedTournaments);
-      if (tournaments.length > 0) {
-        return tournaments[0].id;
+      const parsedTournaments: Tournament[] = JSON.parse(savedTournaments);
+      if (parsedTournaments.length > 0) {
+        // Return null to show hero section - user needs to explicitly open a tournament
+        return null;
       }
-    }
-    
-    // Check if we need to migrate and set the migrated tournament as current
-    const legacyCompetitions = localStorage.getItem('tournament_competitions');
-    const legacyPitches = localStorage.getItem('tournament_pitches');
-    const legacyClubs = localStorage.getItem('tournament_clubs');
-    
-    if (legacyCompetitions || legacyPitches || legacyClubs) {
-      // Migration will happen in tournaments state init, we'll get the ID from there
-      // Return null for now, it will be set when tournaments state initializes
-      return null;
     }
     
     return null;
@@ -258,13 +249,6 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const clubs = currentTournament?.clubs || [];
   const locations = currentTournament?.locations || [];
   const pitchBreaks = currentTournament?.pitchBreaks || [];
-
-  // Handle migration: if we have tournaments but no current selection, select the first one
-  useEffect(() => {
-    if (!currentTournamentId && tournaments.length > 0) {
-      setCurrentTournamentId(tournaments[0].id);
-    }
-  }, [currentTournamentId, tournaments]);
 
   // Migrate base64 images to IndexedDB on load
   useEffect(() => {
@@ -341,6 +325,10 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setCurrentTournamentId(tournament?.id || null);
   }, []);
 
+  const closeTournament = useCallback(() => {
+    setCurrentTournamentId(null);
+  }, []);
+
   const addTournament = useCallback((name: string, description?: string): Tournament => {
     const now = new Date().toISOString();
     const newTournament: Tournament = {
@@ -391,7 +379,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setTournaments(prev => {
       const filtered = prev.filter(t => t.id !== id);
       if (currentTournamentId === id) {
-        setCurrentTournamentId(filtered.length > 0 ? filtered[0].id : null);
+        setCurrentTournamentId(null);
       }
       return filtered;
     });
@@ -1707,6 +1695,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       tournaments,
       currentTournament,
       setCurrentTournament,
+      closeTournament,
       addTournament,
       importTournament,
       deleteTournament,

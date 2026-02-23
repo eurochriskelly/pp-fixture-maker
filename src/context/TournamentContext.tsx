@@ -412,7 +412,34 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!currentTournamentId) return;
     updateCurrentTournament(t => ({
       ...t,
-      pitchBreaks: (t.pitchBreaks || []).map(pb => pb.id === id ? { ...pb, ...updates } : pb),
+      pitchBreaks: (() => {
+        const existingBreaks = t.pitchBreaks || [];
+        let found = false;
+        const updatedBreaks = existingBreaks.map((pb) => {
+          if (pb.id !== id) return pb;
+          found = true;
+          return { ...pb, ...updates };
+        });
+
+        if (found) {
+          return updatedBreaks;
+        }
+
+        if (!updates.pitchId || !updates.startTime) {
+          return updatedBreaks;
+        }
+
+        return [
+          ...updatedBreaks,
+          {
+            id,
+            pitchId: updates.pitchId,
+            startTime: updates.startTime,
+            duration: updates.duration ?? 20,
+            label: updates.label ?? 'Break',
+          },
+        ];
+      })(),
       updatedAt: new Date().toISOString()
     }));
   }, [currentTournamentId, updateCurrentTournament]);
@@ -878,7 +905,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         );
         
         const enforced = enforceNoPitchOverlaps(nextTournament, pitchBreaks);
-        return prev.map(t => t.id === currentTournamentId ? enforced : t);
+        const timelineAligned = reflowPitchTimelineWithBreaks(enforced, pitchBreaks);
+        return prev.map(t => t.id === currentTournamentId ? timelineAligned : t);
       }
 
       return prev.map(t => t.id === currentTournamentId ? nextTournament : t);
@@ -916,7 +944,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         );
         
         const enforced = enforceNoPitchOverlaps(nextTournament, pitchBreaks);
-        return prev.map(t => t.id === currentTournamentId ? enforced : t);
+        const timelineAligned = reflowPitchTimelineWithBreaks(enforced, pitchBreaks);
+        return prev.map(t => t.id === currentTournamentId ? timelineAligned : t);
       }
 
       return prev.map(t => t.id === currentTournamentId ? nextTournament : t);
@@ -1139,6 +1168,153 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   };
 
+  const reflowPitchTimelineWithBreaks = (
+    tournament: Tournament,
+    pitchBreaks: PitchBreakItem[] = []
+  ): Tournament => {
+    const effectivePitchBreaks = pitchBreaks.length > 0 ? pitchBreaks : (tournament.pitchBreaks || []);
+    type TimelineFixtureRef = {
+      kind: 'fixture';
+      competitionId: string;
+      fixtureId: string;
+      pitchId: string;
+      requestedStart: number;
+      duration: number;
+      slack: number;
+      slackBefore: number;
+      order: number;
+    };
+    type TimelineBreakRef = {
+      kind: 'break';
+      breakId: string;
+      pitchId: string;
+      requestedStart: number;
+      duration: number;
+      order: number;
+    };
+    type TimelineRef = TimelineFixtureRef | TimelineBreakRef;
+
+    const pitchStartById = new Map(
+      tournament.pitches.map((pitch) => [pitch.id, parseTimeToMinutes(pitch.startTime)])
+    );
+    const fixturesByPitch = new Map<string, TimelineFixtureRef[]>();
+    const breaksByPitch = new Map<string, TimelineBreakRef[]>();
+    const fixtureUpdatesByCompetitionId = new Map<string, Map<string, Partial<Fixture>>>();
+    const breakUpdatesByBreakId = new Map<string, Partial<PitchBreakItem>>();
+    let fixtureOrder = 0;
+    let breakOrder = 0;
+
+    tournament.competitions.forEach((competition) => {
+      const groupsById = new Map((competition.groups || []).map((group) => [group.id, group]));
+
+      competition.fixtures.forEach((fixture) => {
+        if (!fixture.pitchId || !fixture.startTime) return;
+        const { duration, slack } = getFixtureTimingConfig(fixture, groupsById);
+        const requestedStart = parseTimeToMinutes(fixture.startTime) - (fixture.slackBefore || 0);
+        const fixtureRef: TimelineFixtureRef = {
+          kind: 'fixture',
+          competitionId: competition.id,
+          fixtureId: fixture.id,
+          pitchId: fixture.pitchId,
+          requestedStart,
+          duration,
+          slack,
+          slackBefore: fixture.slackBefore || 0,
+          order: fixtureOrder,
+        };
+        fixtureOrder += 1;
+
+        if (!fixturesByPitch.has(fixture.pitchId)) {
+          fixturesByPitch.set(fixture.pitchId, []);
+        }
+        fixturesByPitch.get(fixture.pitchId)!.push(fixtureRef);
+      });
+    });
+
+    effectivePitchBreaks.forEach((pitchBreak) => {
+      const breakRef: TimelineBreakRef = {
+        kind: 'break',
+        breakId: pitchBreak.id,
+        pitchId: pitchBreak.pitchId,
+        requestedStart: parseTimeToMinutes(pitchBreak.startTime),
+        duration: Math.max(0, pitchBreak.duration || 0),
+        order: breakOrder,
+      };
+      breakOrder += 1;
+
+      if (!breaksByPitch.has(pitchBreak.pitchId)) {
+        breaksByPitch.set(pitchBreak.pitchId, []);
+      }
+      breaksByPitch.get(pitchBreak.pitchId)!.push(breakRef);
+    });
+
+    const allPitchIds = new Set<string>([
+      ...Array.from(fixturesByPitch.keys()),
+      ...Array.from(breaksByPitch.keys()),
+    ]);
+
+    allPitchIds.forEach((pitchId) => {
+      const timeline: TimelineRef[] = [
+        ...(fixturesByPitch.get(pitchId) || []),
+        ...(breaksByPitch.get(pitchId) || []),
+      ];
+      if (timeline.length === 0) return;
+
+      timeline.sort((a, b) => {
+        if (a.requestedStart !== b.requestedStart) return a.requestedStart - b.requestedStart;
+        if (a.kind !== b.kind) return a.kind === 'fixture' ? -1 : 1;
+        return a.order - b.order;
+      });
+
+      let cursor = pitchStartById.get(pitchId) ?? 10 * 60;
+      let previousKind: 'fixture' | 'break' | null = null;
+
+      timeline.forEach((item) => {
+        if (item.kind === 'fixture') {
+          const effectiveSlackBefore = previousKind === 'break' ? 0 : item.slackBefore;
+          const startMinutes = cursor + effectiveSlackBefore;
+          const updatesForCompetition =
+            fixtureUpdatesByCompetitionId.get(item.competitionId) || new Map<string, Partial<Fixture>>();
+
+          updatesForCompetition.set(item.fixtureId, {
+            startTime: toTimeString(startMinutes),
+            ...(effectiveSlackBefore !== item.slackBefore ? { slackBefore: effectiveSlackBefore } : {}),
+          });
+          fixtureUpdatesByCompetitionId.set(item.competitionId, updatesForCompetition);
+          cursor = startMinutes + item.duration + item.slack;
+          previousKind = 'fixture';
+          return;
+        }
+
+        breakUpdatesByBreakId.set(item.breakId, {
+          startTime: toTimeString(cursor),
+        });
+        cursor += item.duration;
+        previousKind = 'break';
+      });
+    });
+
+    return {
+      ...tournament,
+      competitions: tournament.competitions.map((competition) => {
+        const updates = fixtureUpdatesByCompetitionId.get(competition.id);
+        if (!updates || updates.size === 0) return competition;
+
+        return {
+          ...competition,
+          fixtures: competition.fixtures.map((fixture) => {
+            const fixtureUpdates = updates.get(fixture.id);
+            return fixtureUpdates ? { ...fixture, ...fixtureUpdates } : fixture;
+          }),
+        };
+      }),
+      pitchBreaks: (tournament.pitchBreaks || []).map((pitchBreak) => {
+        const breakUpdates = breakUpdatesByBreakId.get(pitchBreak.id);
+        return breakUpdates ? { ...pitchBreak, ...breakUpdates } : pitchBreak;
+      }),
+    };
+  };
+
   const recalculateCompetitionSchedule = (competition: Competition, pitches: Pitch[], pitchBreaks: PitchBreakItem[] = []): Competition => {
     const KNOCKOUT_TIER: Record<string, number> = {
       'Round of 16': 0,
@@ -1265,7 +1441,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       };
       
       const enforced = enforceNoPitchOverlaps(updatedTournament, pitchBreaks);
-      return prev.map(t => t.id === currentTournamentId ? enforced : t);
+      const timelineAligned = reflowPitchTimelineWithBreaks(enforced, pitchBreaks);
+      return prev.map(t => t.id === currentTournamentId ? timelineAligned : t);
     });
   }, [currentTournamentId]);
 
@@ -1446,7 +1623,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       };
       
       const enforced = enforceNoPitchOverlaps(updatedTournament, pitchBreaks);
-      return prev.map(t => t.id === currentTournamentId ? enforced : t);
+      const timelineAligned = reflowPitchTimelineWithBreaks(enforced, pitchBreaks);
+      return prev.map(t => t.id === currentTournamentId ? timelineAligned : t);
     });
   }, [currentTournamentId]);
 
@@ -1684,6 +1862,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
          });
          updatedTournament = { ...updatedTournament, competitions: recalculated };
          updatedTournament = enforceNoPitchOverlaps(updatedTournament, pitchBreaks);
+         updatedTournament = reflowPitchTimelineWithBreaks(updatedTournament, pitchBreaks);
       }
 
       return prev.map(t => t.id === currentTournamentId ? updatedTournament : t);

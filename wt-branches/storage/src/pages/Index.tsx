@@ -1,45 +1,19 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useTournament } from '@/context/TournamentContext';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Plus, Trash2, Settings, ChevronRight, Trophy, FolderOpen } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Plus, Trash2, Settings, ChevronRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { CompetitionBadge } from '@/components/CompetitionBadge';
 
 const Index = () => {
-  const { competitions, addCompetition, deleteCompetition, currentTournament, tournaments } = useTournament();
+  const { competitions, addCompetition, deleteCompetition, currentTournament } = useTournament();
   const [newCompName, setNewCompName] = React.useState('');
-  const navigate = useNavigate();
 
-  // Redirect to tournaments page if no tournament is selected
-  useEffect(() => {
-    if (!currentTournament) {
-      navigate('/tournaments');
-    }
-  }, [currentTournament, navigate]);
-
-  // If no current tournament, show a message to select one
+  // Layout handles showing hero when no tournament - this component only renders when tournament is open
   if (!currentTournament) {
-    return (
-      <div className="container mx-auto p-4 max-w-5xl">
-        <Card className="border-dashed border-2">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <div className="bg-primary/10 p-4 rounded-full w-16 h-16 flex items-center justify-center mb-4">
-              <Trophy className="h-8 w-8 text-primary" />
-            </div>
-            <h3 className="text-lg font-semibold mb-2">No Tournament Selected</h3>
-            <p className="text-muted-foreground text-center max-w-sm mb-4">
-              Please select or create a tournament to start managing competitions.
-            </p>
-            <Button onClick={() => navigate('/tournaments')}>
-              <FolderOpen className="mr-2 h-4 w-4" />
-              Go to Tournaments
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
+    return null;
   }
 
   const handleCreate = () => {

@@ -7,6 +7,7 @@ import { TeamDisplay } from '@/components/FixtureComponents';
 import { formatKnockoutCode, toThreeChars } from '@/components/FixtureComponents';
 
 import { cn } from '@/lib/utils';
+import { getFixtureSlack } from '@/utils/scheduleUtils';
 import { AlertTriangle, Clock } from 'lucide-react';
 
 interface MatchDisplay {
@@ -15,6 +16,7 @@ interface MatchDisplay {
   startTime: string;
   startMinutes: number | null;
   durationMinutes: number;
+  slackMinutes: number;
 }
 
 const DEFAULT_DURATION_MINUTES = 20;
@@ -137,6 +139,7 @@ const ByPitch: React.FC = () => {
           startTime: fixture.startTime || 'TBD',
           startMinutes,
           durationMinutes: fixture.duration ?? group?.defaultDuration ?? DEFAULT_DURATION_MINUTES,
+          slackMinutes: getFixtureSlack(fixture, comp.groups || []),
         });
       }
     }
@@ -228,7 +231,9 @@ const ByPitch: React.FC = () => {
                     {matches.map((match, idx) => {
                       const next = matches[idx + 1];
                       const currentEnd =
-                        match.startMinutes === null ? null : match.startMinutes + match.durationMinutes;
+                        match.startMinutes === null
+                          ? null
+                          : match.startMinutes + match.durationMinutes + match.slackMinutes;
                       const nextStart =
                         typeof next?.startMinutes === 'number' ? next.startMinutes : null;
                       const gapMinutes =

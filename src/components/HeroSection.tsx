@@ -1,87 +1,515 @@
-import React, { useState } from 'react';
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import React, { useMemo, useState } from 'react';
+import { format } from 'date-fns';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+  Calendar,
+  ChevronRight,
+  Download,
+  FolderOpen,
+  Import,
+  LogOut,
+  MapPin,
+  Plus,
+  Search,
+  ShieldCheck,
+  Target,
+  Trophy,
+  Upload,
+  User,
+  Users,
+} from 'lucide-react';
+
+import { useTournament } from '@/context/TournamentContext';
+import { useAuth } from '@/context/AuthContext';
+import { Tournament } from '@/lib/types';
+import { createPppArchive, parsePppArchive } from '@/lib/pppArchive';
+import { useToast } from '@/hooks/use-toast';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
-import { Plus, Upload, Download, Trophy, Calendar, Users, MapPin, ChevronRight, X, FolderOpen } from "lucide-react";
-import { useTournament } from "@/context/TournamentContext";
-import { useAuth } from "@/context/AuthContext";
-import { AuthDialog } from "./AuthDialog";
-import { format } from "date-fns";
-import { Tournament } from "@/lib/types";
-import { createPppArchive, parsePppArchive } from "@/lib/pppArchive";
-import { useToast } from "@/hooks/use-toast";
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+
+type TournamentSource = 'local' | 'synced';
+type TournamentStatus = 'planning' | 'upcoming' | 'started' | 'active' | 'completed';
+
+interface TournamentRecord {
+  tournament: Tournament;
+  source: TournamentSource;
+  status: TournamentStatus;
+  teamsCount: number;
+  fixturesCount: number;
+  canCheckout: boolean;
+}
+
+interface SectionFilters {
+  statuses: TournamentStatus[];
+  region: string;
+  dateFrom: string;
+  dateTo: string;
+  search: string;
+}
+
+const STATUS_LABELS: Record<TournamentStatus, string> = {
+  planning: 'Planning',
+  upcoming: 'Upcoming',
+  started: 'Started',
+  active: 'Active',
+  completed: 'Completed',
+};
+
+const ACTIVE_DEFAULT_FILTER: TournamentStatus[] = ['started', 'active', 'planning'];
+const UPCOMING_DEFAULT_FILTER: TournamentStatus[] = ['upcoming'];
+
+function getStatus(tournament: Tournament): TournamentStatus {
+  if (!tournament.startDate) return 'planning';
+
+  const now = new Date();
+  const startDate = new Date(`${tournament.startDate}T00:00:00`);
+  const endDate = tournament.endDate ? new Date(`${tournament.endDate}T23:59:59`) : undefined;
+
+  if (Number.isNaN(startDate.getTime())) return 'planning';
+  if (startDate > now) return 'upcoming';
+  if (endDate && endDate < now) return 'completed';
+  if (!endDate) return 'started';
+
+  return 'active';
+}
+
+function safeFormatDate(dateString?: string) {
+  if (!dateString) return 'TBD';
+  try {
+    return format(new Date(dateString), 'MMM d, yyyy');
+  } catch {
+    return dateString;
+  }
+}
+
+function isWithinDateRange(record: TournamentRecord, from: string, to: string) {
+  if (!from && !to) return true;
+  if (!record.tournament.startDate) return false;
+
+  const start = new Date(`${record.tournament.startDate}T00:00:00`);
+  if (Number.isNaN(start.getTime())) return false;
+
+  if (from) {
+    const fromDate = new Date(`${from}T00:00:00`);
+    if (!Number.isNaN(fromDate.getTime()) && start < fromDate) return false;
+  }
+
+  if (to) {
+    const toDate = new Date(`${to}T23:59:59`);
+    if (!Number.isNaN(toDate.getTime()) && start > toDate) return false;
+  }
+
+  return true;
+}
+
+function statusBadgeVariant(status: TournamentStatus): 'default' | 'secondary' | 'outline' {
+  if (status === 'active' || status === 'started') return 'default';
+  if (status === 'upcoming') return 'secondary';
+  return 'outline';
+}
+
+function TournamentTableSection({
+  id,
+  title,
+  description,
+  records,
+  defaultStatuses,
+  isAuthenticated,
+  globalSearch,
+  onOpen,
+  onPublish,
+  onCheckout,
+}: {
+  id: string;
+  title: string;
+  description: string;
+  records: TournamentRecord[];
+  defaultStatuses: TournamentStatus[];
+  isAuthenticated: boolean;
+  globalSearch: string;
+  onOpen: (record: TournamentRecord) => void;
+  onPublish: (record: TournamentRecord) => void;
+  onCheckout: (record: TournamentRecord) => void;
+}) {
+  const [filters, setFilters] = useState<SectionFilters>({
+    statuses: defaultStatuses,
+    region: 'all',
+    dateFrom: '',
+    dateTo: '',
+    search: '',
+  });
+  const [visibleCount, setVisibleCount] = useState(5);
+
+  const availableRegions = useMemo(() => {
+    const regions = new Set<string>();
+    records.forEach((record) => {
+      if (record.tournament.region?.trim()) regions.add(record.tournament.region.trim());
+    });
+    return [...regions].sort((a, b) => a.localeCompare(b));
+  }, [records]);
+
+  const filteredRecords = useMemo(() => {
+    const query = `${globalSearch} ${filters.search}`.trim().toLowerCase();
+
+    return records.filter((record) => {
+      if (filters.statuses.length > 0 && !filters.statuses.includes(record.status)) return false;
+      if (filters.region !== 'all' && (record.tournament.region || '').trim() !== filters.region) return false;
+      if (!isWithinDateRange(record, filters.dateFrom, filters.dateTo)) return false;
+
+      if (!query) return true;
+      const name = record.tournament.name.toLowerCase();
+      const location = (record.tournament.location || '').toLowerCase();
+      const region = (record.tournament.region || '').toLowerCase();
+      return name.includes(query) || location.includes(query) || region.includes(query);
+    });
+  }, [records, filters, globalSearch]);
+
+  const visibleRecords = filteredRecords.slice(0, visibleCount);
+
+  const toggleStatus = (status: TournamentStatus) => {
+    setVisibleCount(5);
+    setFilters((prev) => {
+      const exists = prev.statuses.includes(status);
+      const statuses = exists
+        ? prev.statuses.filter((item) => item !== status)
+        : [...prev.statuses, status];
+      return { ...prev, statuses };
+    });
+  };
+
+  return (
+    <section id={id} className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h2>
+        <p className="mt-1 text-sm text-slate-600">{description}</p>
+      </div>
+
+      <Card className="border-slate-200 shadow-sm">
+        <CardContent className="space-y-4 p-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="xl:col-span-2">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</p>
+              <div className="flex flex-wrap gap-2">
+                {(Object.keys(STATUS_LABELS) as TournamentStatus[]).map((status) => (
+                  <Button
+                    key={status}
+                    type="button"
+                    size="sm"
+                    variant={filters.statuses.includes(status) ? 'default' : 'outline'}
+                    onClick={() => toggleStatus(status)}
+                    className={filters.statuses.includes(status) ? 'bg-sky-700 hover:bg-sky-800' : 'text-slate-700'}
+                  >
+                    {STATUS_LABELS[status]}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Region</p>
+              <Select
+                value={filters.region}
+                onValueChange={(value) => {
+                  setVisibleCount(5);
+                  setFilters((prev) => ({ ...prev, region: value }));
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All regions" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All regions</SelectItem>
+                  {availableRegions.map((region) => (
+                    <SelectItem key={region} value={region}>
+                      {region}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Date range</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(event) => {
+                    setVisibleCount(5);
+                    setFilters((prev) => ({ ...prev, dateFrom: event.target.value }));
+                  }}
+                />
+                <Input
+                  type="date"
+                  value={filters.dateTo}
+                  onChange={(event) => {
+                    setVisibleCount(5);
+                    setFilters((prev) => ({ ...prev, dateTo: event.target.value }));
+                  }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Search</p>
+              <Input
+                value={filters.search}
+                placeholder="Search title, region, location"
+                onChange={(event) => {
+                  setVisibleCount(5);
+                  setFilters((prev) => ({ ...prev, search: event.target.value }));
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white">
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-slate-50">
+                <TableRow>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Region</TableHead>
+                  <TableHead>Location</TableHead>
+                  <TableHead>Start date</TableHead>
+                  <TableHead>End date</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Teams</TableHead>
+                  <TableHead>Fixtures</TableHead>
+                  <TableHead className="min-w-[220px]">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visibleRecords.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={9} className="py-8 text-center text-sm text-slate-500">
+                      No tournaments match these filters.
+                    </TableCell>
+                  </TableRow>
+                )}
+
+                {visibleRecords.map((record) => (
+                  <TableRow key={`${record.source}-${record.tournament.id}`}>
+                    <TableCell className="font-medium text-slate-900">{record.tournament.name}</TableCell>
+                    <TableCell>{record.tournament.region || 'TBD'}</TableCell>
+                    <TableCell>{record.tournament.location || 'TBD'}</TableCell>
+                    <TableCell>{safeFormatDate(record.tournament.startDate)}</TableCell>
+                    <TableCell>{safeFormatDate(record.tournament.endDate)}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={statusBadgeVariant(record.status)}
+                        className={
+                          statusBadgeVariant(record.status) === 'default'
+                            ? 'bg-sky-700 text-white hover:bg-sky-700'
+                            : undefined
+                        }
+                      >
+                        {STATUS_LABELS[record.status]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{record.teamsCount}</TableCell>
+                    <TableCell>{record.fixturesCount}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-2">
+                        {isAuthenticated ? (
+                          <>
+                            <Button size="sm" variant="outline" onClick={() => onOpen(record)}>
+                              Open
+                            </Button>
+                            <Button size="sm" variant="outline" asChild>
+                              <Link to="/tournaments">Manage</Link>
+                            </Button>
+                            {record.status === 'upcoming' && record.canCheckout && (
+                              <Button size="sm" variant="outline" onClick={() => onCheckout(record)}>
+                                Checkout
+                              </Button>
+                            )}
+                            <Button size="sm" onClick={() => onPublish(record)} className="bg-sky-700 hover:bg-sky-800">
+                              Publish
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button size="sm" variant="outline" asChild>
+                              <Link to="/login">View</Link>
+                            </Button>
+                            {record.source === 'local' && (
+                              <Button size="sm" variant="outline" onClick={() => onOpen(record)}>
+                                Open local
+                              </Button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {filteredRecords.length > visibleCount && (
+            <div className="flex justify-center">
+              <Button variant="outline" onClick={() => setVisibleCount((prev) => prev + 5)}>
+                Show more
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
 
 export function HeroSection() {
-  const { tournaments, addTournament, setCurrentTournament, importTournament } = useTournament();
-  const { isAuthenticated } = useAuth();
+  const { tournaments, addTournament, importTournament, setCurrentTournament } = useTournament();
+  const { isAuthenticated, user, logout } = useAuth();
   const { toast } = useToast();
-  const [authDialogOpen, setAuthDialogOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
-  
-  // Create tournament dialog state
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [newTournamentName, setNewTournamentName] = useState("");
-  const [newTournamentDescription, setNewTournamentDescription] = useState("");
-  
-  // Checkout dialog state
-  const [checkoutDialogOpen, setCheckoutDialogOpen] = useState(false);
+  const navigate = useNavigate();
 
-  const requireAuth = (action: () => void) => {
-    if (!isAuthenticated) {
-      setPendingAction(() => action);
-      setAuthDialogOpen(true);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newTournamentName, setNewTournamentName] = useState('');
+  const [newTournamentDescription, setNewTournamentDescription] = useState('');
+  const [dashboardSearch, setDashboardSearch] = useState('');
+
+  const safeFileName = (name: string) =>
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'tournament';
+
+  const localRecords: TournamentRecord[] = useMemo(
+    () =>
+      tournaments.map((tournament) => ({
+        tournament,
+        source:
+          tournament.published?.remoteId || tournament.published?.eventUuid ? 'synced' : 'local',
+        status: getStatus(tournament),
+        teamsCount: tournament.competitions.reduce((sum, comp) => sum + comp.teams.length, 0),
+        fixturesCount: tournament.competitions.reduce((sum, comp) => sum + comp.fixtures.length, 0),
+        canCheckout: isAuthenticated,
+      })),
+    [tournaments, isAuthenticated]
+  );
+
+  // TODO: Replace with server tournament wiring when endpoint/auth scopes are available.
+  const serverRecords: TournamentRecord[] = useMemo(() => [], []);
+
+  const mergedRecords = useMemo(
+    () =>
+      isAuthenticated
+        ? [...localRecords, ...serverRecords]
+        : localRecords.filter((record) => record.source === 'local'),
+    [isAuthenticated, localRecords, serverRecords]
+  );
+
+  const recordsById = useMemo(() => {
+    return new Map(mergedRecords.map((record) => [record.tournament.id, record]));
+  }, [mergedRecords]);
+
+  const stats = useMemo(() => {
+    const totalTournaments = mergedRecords.length;
+    const totalTeams = mergedRecords.reduce((sum, record) => sum + record.teamsCount, 0);
+    const totalFixtures = mergedRecords.reduce((sum, record) => sum + record.fixturesCount, 0);
+    const totalPoints = mergedRecords.reduce(
+      (sum, record) =>
+        sum +
+        (record.tournament.winPoints ?? 2) +
+        (record.tournament.drawPoints ?? 1) +
+        (record.tournament.losePoints ?? 0),
+      0
+    );
+    const totalGoals = 0;
+
+    return {
+      totalTournaments,
+      totalTeams,
+      totalFixtures,
+      totalPoints,
+      totalGoals,
+    };
+  }, [mergedRecords]);
+
+  const yourTournaments = useMemo(() => {
+    if (!isAuthenticated) return localRecords;
+    return mergedRecords;
+  }, [isAuthenticated, localRecords, mergedRecords]);
+
+  const activeRecords = useMemo(
+    () => mergedRecords.filter((record) => ACTIVE_DEFAULT_FILTER.includes(record.status)),
+    [mergedRecords]
+  );
+
+  const upcomingRecords = useMemo(
+    () => mergedRecords.filter((record) => UPCOMING_DEFAULT_FILTER.includes(record.status)),
+    [mergedRecords]
+  );
+
+  const openTournament = (record: TournamentRecord) => {
+    const localRecord = recordsById.get(record.tournament.id);
+    if (localRecord?.source === 'local' || record.source === 'local') {
+      setCurrentTournament(record.tournament);
+      navigate('/overview');
       return;
     }
-    action();
-  };
 
-  const handleAuthSuccess = () => {
-    if (pendingAction) {
-      pendingAction();
-      setPendingAction(null);
-    }
-  };
-
-  const handleCreateClick = () => {
-    requireAuth(() => setCreateDialogOpen(true));
-  };
-
-  const handleCheckoutClick = () => {
-    requireAuth(() => setCheckoutDialogOpen(true));
+    toast({
+      title: 'Checkout required',
+      description: 'This tournament is not stored locally yet. Checkout will be available when server sync is wired.',
+    });
   };
 
   const handleCreateTournament = () => {
-    if (newTournamentName.trim()) {
-      const tournament = addTournament(newTournamentName, newTournamentDescription);
-      setNewTournamentName("");
-      setNewTournamentDescription("");
-      setCreateDialogOpen(false);
-      setCurrentTournament(tournament);
-      toast({
-        title: "Tournament created!",
-        description: `${tournament.name} has been created and opened.`
-      });
-    }
-  };
+    if (!newTournamentName.trim()) return;
 
-  const handleOpenTournament = (tournament: Tournament) => {
+    const tournament = addTournament(newTournamentName, newTournamentDescription);
     setCurrentTournament(tournament);
+    setCreateDialogOpen(false);
+    setNewTournamentName('');
+    setNewTournamentDescription('');
+    navigate('/overview');
+
+    toast({
+      title: 'Tournament created',
+      description: `${tournament.name} is ready.`,
+    });
   };
 
-  const handleImportClick = () => {
+  const handleImportTournament = () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.ppp,application/zip';
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
+    input.onchange = async (event) => {
+      const file = (event.target as HTMLInputElement).files?.[0];
       if (!file) return;
 
       try {
@@ -96,267 +524,402 @@ export function HeroSection() {
         toast({
           title: 'Import failed',
           description: message,
-          variant: 'destructive'
+          variant: 'destructive',
         });
       }
     };
     input.click();
   };
 
-  const handleExportTournament = async (tournament: Tournament, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const archiveBlob = await createPppArchive(tournament);
-    const url = URL.createObjectURL(archiveBlob);
-    const fileName = `${tournament.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'tournament'}.ppp`;
+  const handleExportTournament = async (record: TournamentRecord) => {
+    if (record.source !== 'local') return;
 
+    const archiveBlob = await createPppArchive(record.tournament);
+    const url = URL.createObjectURL(archiveBlob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = fileName;
+    link.download = `${safeFileName(record.tournament.name)}.ppp`;
     link.click();
     URL.revokeObjectURL(url);
   };
 
-  const formatDate = (dateString: string) => {
-    try {
-      return format(new Date(dateString), 'MMM d, yyyy');
-    } catch {
-      return dateString;
-    }
+  const handlePublish = (record: TournamentRecord) => {
+    openTournament(record);
+  };
+
+  const handleCheckout = (record: TournamentRecord) => {
+    toast({
+      title: 'Checkout pending',
+      description: `Checkout for ${record.tournament.name} will be connected to server permissions soon.`,
+    });
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-600 via-purple-600 to-indigo-700">
-      <AuthDialog 
-        open={authDialogOpen} 
-        onOpenChange={setAuthDialogOpen}
-        onSuccess={handleAuthSuccess}
-      />
-      
-      {/* Navigation Bar */}
-      <nav className="border-b border-white/10 bg-white/5 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center gap-3">
-              <div className="bg-white/20 p-2 rounded-lg">
-                <Trophy className="h-6 w-6 text-white" />
-              </div>
-              <span className="text-xl font-bold text-white">Tournament Maker</span>
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <nav className="border-b border-slate-200 bg-white/95 backdrop-blur-sm">
+        <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-sky-100 p-2 text-sky-700">
+              <Trophy className="h-5 w-5" />
             </div>
-            <div className="flex items-center gap-3">
-              <Button 
-                variant="ghost" 
-                className="text-white hover:bg-white/10"
-                onClick={handleImportClick}
-              >
-                <Upload className="h-4 w-4 mr-2" />
+            <span className="text-lg font-semibold tracking-tight">Tournament Maker</span>
+          </div>
+
+          {isAuthenticated ? (
+            <div className="flex items-center gap-2">
+              <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button className="bg-sky-700 hover:bg-sky-800">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Create
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create tournament</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Name</p>
+                      <Input
+                        placeholder="e.g. Summer Cup 2026"
+                        value={newTournamentName}
+                        onChange={(event) => setNewTournamentName(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') handleCreateTournament();
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Description (optional)</p>
+                      <Textarea
+                        placeholder="Brief tournament summary"
+                        rows={3}
+                        value={newTournamentDescription}
+                        onChange={(event) => setNewTournamentDescription(event.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button onClick={handleCreateTournament} disabled={!newTournamentName.trim()} className="bg-sky-700 hover:bg-sky-800">
+                      Create tournament
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              <Button variant="outline" onClick={handleImportTournament}>
+                <Upload className="mr-2 h-4 w-4" />
                 Import
               </Button>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="gap-2">
+                    <User className="h-4 w-4" />
+                    {user?.name || 'Account'}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>{user?.email}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => navigate('/tournaments')}>
+                    <FolderOpen className="mr-2 h-4 w-4" />
+                    All tournaments
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      logout();
+                      navigate('/');
+                    }}
+                  >
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Logout
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-          </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Button asChild className="bg-sky-700 hover:bg-sky-800">
+                <Link to="/login">Sign in</Link>
+              </Button>
+              <Button variant="outline" asChild>
+                <Link to="/login?mode=register">Create account</Link>
+              </Button>
+            </div>
+          )}
         </div>
       </nav>
 
-      {/* Hero Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="text-center mb-16">
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-6">
-            Create & Manage
-            <span className="block text-yellow-300">Amazing Tournaments</span>
-          </h1>
-          <p className="text-lg text-white/80 max-w-2xl mx-auto mb-8">
-            Build tournaments from scratch, manage competitions, schedule fixtures, 
-            and keep everything organized in one place.
-          </p>
-          
-          <div className="flex flex-wrap justify-center gap-4">
-            <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-              <DialogTrigger asChild>
-                <Button 
-                  size="lg" 
-                  className="bg-white text-purple-700 hover:bg-white/90"
-                  onClick={handleCreateClick}
-                >
-                  <Plus className="mr-2 h-5 w-5" />
-                  Create Tournament
+      <main className="mx-auto flex w-full max-w-7xl flex-col gap-10 px-4 py-10 sm:px-6 lg:px-8">
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-10">
+          {isAuthenticated ? (
+            <div className="grid gap-6 lg:grid-cols-[1fr_320px] lg:items-end">
+              <div>
+                <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-sky-700">Dashboard</p>
+                <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Welcome back</h1>
+                <p className="mt-3 max-w-2xl text-slate-600">
+                  Continue building tournaments, import existing archives, and keep publishing schedules without leaving your dashboard.
+                </p>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <Button onClick={() => setCreateDialogOpen(true)} className="bg-sky-700 hover:bg-sky-800">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Create tournament
+                  </Button>
+                  <Button variant="outline" onClick={handleImportTournament}>
+                    <Import className="mr-2 h-4 w-4" />
+                    Import tournament
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Search tournaments</p>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    className="pl-9"
+                    value={dashboardSearch}
+                    onChange={(event) => setDashboardSearch(event.target.value)}
+                    placeholder="Search by title, region or location"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
+              <div>
+                <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-sky-700">Tournament design platform</p>
+                <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-5xl">Start designing now!</h1>
+                <p className="mt-4 max-w-2xl text-slate-600">
+                  Build tournaments, generate fixtures, and organize your event from first draft to publish-ready schedule.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <Button asChild className="bg-sky-700 hover:bg-sky-800">
+                  <Link to="/login">Start designing now!</Link>
                 </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create New Tournament</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Name</label>
-                    <Input
-                      placeholder="e.g. Summer Cup 2024"
-                      value={newTournamentName}
-                      onChange={(e) => setNewTournamentName(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleCreateTournament()}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Description (optional)</label>
-                    <Textarea
-                      placeholder="Brief description of the tournament..."
-                      value={newTournamentDescription}
-                      onChange={(e) => setNewTournamentDescription(e.target.value)}
-                      rows={3}
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={handleCreateTournament} disabled={!newTournamentName.trim()}>
-                    Create Tournament
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+                <Button variant="outline" asChild>
+                  <a href="#upcoming-tournaments">See upcoming tournaments</a>
+                </Button>
+              </div>
+            </div>
+          )}
+        </section>
 
-            <Button 
-              size="lg" 
-              variant="outline" 
-              className="border-white/30 text-white hover:bg-white/10"
-              onClick={handleCheckoutClick}
-            >
-              <FolderOpen className="mr-2 h-5 w-5" />
-              Checkout Tournament
-            </Button>
-          </div>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-16">
-          <Card className="bg-white/10 backdrop-blur-sm border-white/20">
-            <CardContent className="p-6 flex items-center gap-4">
-              <div className="bg-yellow-400/20 p-3 rounded-lg">
-                <Trophy className="h-6 w-6 text-yellow-300" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-white">{tournaments.length}</p>
-                <p className="text-sm text-white/70">Tournaments</p>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-white/10 backdrop-blur-sm border-white/20">
-            <CardContent className="p-6 flex items-center gap-4">
-              <div className="bg-green-400/20 p-3 rounded-lg">
-                <Users className="h-6 w-6 text-green-300" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-white">
-                  {tournaments.reduce((acc, t) => acc + t.competitions.reduce((c, comp) => c + comp.teams.length, 0), 0)}
-                </p>
-                <p className="text-sm text-white/70">Total Teams</p>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-white/10 backdrop-blur-sm border-white/20">
-            <CardContent className="p-6 flex items-center gap-4">
-              <div className="bg-blue-400/20 p-3 rounded-lg">
-                <Calendar className="h-6 w-6 text-blue-300" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-white">
-                  {tournaments.reduce((acc, t) => acc + t.competitions.reduce((c, comp) => c + comp.fixtures.length, 0), 0)}
-                </p>
-                <p className="text-sm text-white/70">Fixtures Created</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Existing Tournaments */}
-        {tournaments.length > 0 && (
+        <section className="space-y-4">
           <div>
-            <h2 className="text-xl font-semibold text-white mb-6">Your Tournaments</h2>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {tournaments.map((tournament) => (
-                <Card 
-                  key={tournament.id} 
-                  className="bg-white/10 backdrop-blur-sm border-white/20 hover:bg-white/15 transition-all cursor-pointer group"
-                  onClick={() => handleOpenTournament(tournament)}
-                >
-                  <CardContent className="p-5">
-                    <div className="flex items-start justify-between mb-3">
-                      <h3 className="font-semibold text-white text-lg">{tournament.name}</h3>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => handleExportTournament(tournament, e)}
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    
-                    {tournament.description && (
-                      <p className="text-sm text-white/60 mb-4 line-clamp-2">
-                        {tournament.description}
-                      </p>
-                    )}
-                    
-                    <div className="grid grid-cols-3 gap-2 text-center text-sm mb-4">
-                      <div className="bg-white/5 rounded p-2">
-                        <p className="font-semibold text-white">{tournament.competitions.length}</p>
-                        <p className="text-xs text-white/50">Competitions</p>
-                      </div>
-                      <div className="bg-white/5 rounded p-2">
-                        <p className="font-semibold text-white">
-                          {tournament.competitions.reduce((acc, comp) => acc + comp.teams.length, 0)}
-                        </p>
-                        <p className="text-xs text-white/50">Teams</p>
-                      </div>
-                      <div className="bg-white/5 rounded p-2">
-                        <p className="font-semibold text-white">{tournament.pitches.length}</p>
-                        <p className="text-xs text-white/50">Pitches</p>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-white/50">
-                        Created {formatDate(tournament.createdAt)}
-                      </span>
-                      <Button 
-                        size="sm" 
-                        variant="ghost"
-                        className="text-yellow-300 hover:text-yellow-200 hover:bg-yellow-400/10"
-                      >
-                        Open <ChevronRight className="h-4 w-4 ml-1" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Global progress</h2>
+            <p className="mt-1 text-sm text-slate-600">Aggregate metrics across all available tournaments.</p>
           </div>
-        )}
-      </div>
 
-      {/* Checkout Dialog */}
-      <Dialog open={checkoutDialogOpen} onOpenChange={setCheckoutDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Checkout Tournament</DialogTitle>
-          </DialogHeader>
-          <div className="py-6 text-center">
-            <div className="bg-muted p-4 rounded-lg mb-4">
-              <MapPin className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
-                Server checkout functionality will be implemented here.
-                This would connect to a remote server to fetch tournaments in design phase.
-              </p>
-            </div>
-            <Button variant="outline" onClick={() => setCheckoutDialogOpen(false)}>
-              Close
-            </Button>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="flex items-center gap-3 p-4">
+                <div className="rounded-lg bg-sky-100 p-2 text-sky-700">
+                  <Trophy className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-2xl font-semibold text-slate-900">{stats.totalTournaments}</p>
+                  <p className="text-xs text-slate-500">Total Tournaments</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="flex items-center gap-3 p-4">
+                <div className="rounded-lg bg-sky-100 p-2 text-sky-700">
+                  <Users className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-2xl font-semibold text-slate-900">{stats.totalTeams}</p>
+                  <p className="text-xs text-slate-500">Total Teams</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="flex items-center gap-3 p-4">
+                <div className="rounded-lg bg-sky-100 p-2 text-sky-700">
+                  <Calendar className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-2xl font-semibold text-slate-900">{stats.totalFixtures}</p>
+                  <p className="text-xs text-slate-500">Total Fixtures</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="flex items-center gap-3 p-4">
+                <div className="rounded-lg bg-sky-100 p-2 text-sky-700">
+                  <Target className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-2xl font-semibold text-slate-900">{stats.totalPoints}</p>
+                  <p className="text-xs text-slate-500">Total Points</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="flex items-center gap-3 p-4">
+                <div className="rounded-lg bg-sky-100 p-2 text-sky-700">
+                  <ShieldCheck className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-2xl font-semibold text-slate-900">{stats.totalGoals}</p>
+                  <p className="text-xs text-slate-500">Total Goals</p>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-        </DialogContent>
-      </Dialog>
+        </section>
+
+        {(localRecords.length > 0 || isAuthenticated) && (
+          <section className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Your tournaments</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  {isAuthenticated
+                    ? 'Your local and synced tournaments in one place.'
+                    : 'Local tournaments saved on this device.'}
+                </p>
+              </div>
+              <Button variant="ghost" asChild>
+                <Link to="/tournaments">View all</Link>
+              </Button>
+            </div>
+
+            {yourTournaments.length === 0 ? (
+              <Card className="border-dashed border-slate-300 bg-white">
+                <CardContent className="py-10 text-center">
+                  <h3 className="text-lg font-semibold text-slate-900">No tournaments yet</h3>
+                  <p className="mt-2 text-sm text-slate-600">
+                    Create a new tournament or import an archive to get started.
+                  </p>
+                  {isAuthenticated && (
+                    <div className="mt-4 flex justify-center gap-2">
+                      <Button onClick={() => setCreateDialogOpen(true)} className="bg-sky-700 hover:bg-sky-800">
+                        <Plus className="mr-2 h-4 w-4" />
+                        Create
+                      </Button>
+                      <Button variant="outline" onClick={handleImportTournament}>
+                        <Upload className="mr-2 h-4 w-4" />
+                        Import
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {yourTournaments.slice(0, 3).map((record) => (
+                  <Card key={`${record.source}-${record.tournament.id}`} className="border-slate-200 shadow-sm">
+                    <CardHeader className="space-y-2 pb-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <CardTitle className="line-clamp-1 text-lg">{record.tournament.name}</CardTitle>
+                        <Badge variant={record.source === 'local' ? 'outline' : 'secondary'}>
+                          {record.source === 'local' ? 'Local' : 'Synced'}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-slate-500">
+                        <span className="inline-flex items-center gap-1">
+                          <MapPin className="h-3.5 w-3.5" />
+                          {record.tournament.region || 'No region'}
+                        </span>{' '}
+                        {record.tournament.location ? `- ${record.tournament.location}` : ''}
+                      </p>
+                    </CardHeader>
+                    <CardContent className="space-y-4 pt-0">
+                      <div className="grid grid-cols-2 gap-2 text-sm text-slate-600">
+                        <p>Start: {safeFormatDate(record.tournament.startDate)}</p>
+                        <p>End: {safeFormatDate(record.tournament.endDate)}</p>
+                        <p>Teams: {record.teamsCount}</p>
+                        <p>Fixtures: {record.fixturesCount}</p>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        Last updated {safeFormatDate(record.tournament.updatedAt)}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" onClick={() => openTournament(record)}>
+                          <FolderOpen className="mr-2 h-4 w-4" />
+                          Open
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => handleExportTournament(record)}>
+                          <Download className="mr-2 h-4 w-4" />
+                          Export
+                        </Button>
+
+                        {isAuthenticated ? (
+                          <Button size="sm" onClick={() => handlePublish(record)} className="bg-sky-700 hover:bg-sky-800">
+                            Publish/Sync
+                          </Button>
+                        ) : (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span>
+                                <Button size="sm" disabled>
+                                  Publish/Sync
+                                </Button>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>Sign in to publish</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        <TournamentTableSection
+          id="active-tournaments"
+          title="Active tournaments"
+          description="Planning, started, and currently active tournaments."
+          records={activeRecords}
+          defaultStatuses={ACTIVE_DEFAULT_FILTER}
+          isAuthenticated={isAuthenticated}
+          globalSearch={dashboardSearch}
+          onOpen={openTournament}
+          onPublish={handlePublish}
+          onCheckout={handleCheckout}
+        />
+
+        <TournamentTableSection
+          id="upcoming-tournaments"
+          title="Upcoming tournaments"
+          description="Future tournaments with checkout and planning visibility."
+          records={upcomingRecords}
+          defaultStatuses={UPCOMING_DEFAULT_FILTER}
+          isAuthenticated={isAuthenticated}
+          globalSearch={dashboardSearch}
+          onOpen={openTournament}
+          onPublish={handlePublish}
+          onCheckout={handleCheckout}
+        />
+
+        {!isAuthenticated && localRecords.length === 0 && (
+          <Card className="border-dashed border-slate-300 bg-white">
+            <CardContent className="py-10 text-center">
+              <h3 className="text-lg font-semibold text-slate-900">Ready to design your first tournament?</h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Sign in or create an account to unlock create, import, and publish workflows.
+              </p>
+              <Button asChild className="mt-4 bg-sky-700 hover:bg-sky-800">
+                <Link to="/login">
+                  Start designing now!
+                  <ChevronRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+      </main>
     </div>
   );
 }

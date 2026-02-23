@@ -24,6 +24,7 @@ import AppLayout from "./components/AppLayout";
 import CompetitionGroups from "./pages/competition/Groups";
 import CompetitionFixtures from "./pages/competition/Fixtures";
 import CompetitionSettings from "./pages/competition/Settings";
+import Login from "./pages/Login";
 
 const queryClient = new QueryClient();
 
@@ -36,33 +37,34 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <Routes>
+              <Route path="/login" element={<Login />} />
               <Route element={<AppLayout />}>
-              <Route path="/" element={<Index />} />
-              <Route path="/overview" element={<Overview />} />
-              <Route path="/tournaments" element={<Tournaments />} />
-              <Route path="/scheduler" element={<Navigate to="/scheduler/timeline" replace />} />
-              <Route path="/scheduler/timeline" element={<Schedule />} />
-              <Route path="/clubs" element={<Navigate to="/clubs/participants" replace />} />
-              <Route path="/clubs/participants" element={<Clubs />} />
-              <Route path="/clubs/map" element={<ClubsMap />} />
-              <Route path="/officials" element={<Navigate to="/officials/organisers" replace />} />
-              <Route path="/officials/organisers" element={<Officials />} />
-              <Route path="/officials/referees" element={<Officials />} />
-              <Route path="/officials/coordinators" element={<Officials />} />
-              <Route path="/locations" element={<Locations />} />
-              <Route path="/reports/by-pitch" element={<ByPitch />} />
-              <Route path="/reports/by-team" element={<ByTeam />} />
-              <Route path="/reports/print" element={<ReportsPrint />} />
-              <Route path="/reports/locations" element={<LocationsReport />} />
-              <Route path="/reports/play-time" element={<PlayTime />} />
-              <Route path="/reports/club-contributions" element={<ClubContributions />} />
-              <Route path="/competition/:id" element={<Navigate to="groups" replace />} />
-              <Route path="/competition/:id/groups" element={<CompetitionGroups />} />
-              <Route path="/competition/:id/fixtures" element={<CompetitionFixtures />} />
-              <Route path="/competition/:id/fixtures/unassigned" element={<CompetitionFixtures />} />
-              <Route path="/competition/:id/settings" element={<CompetitionSettings />} />
-              <Route path="*" element={<NotFound />} />
-            </Route>
+                <Route path="/" element={<Index />} />
+                <Route path="/overview" element={<Overview />} />
+                <Route path="/tournaments" element={<Tournaments />} />
+                <Route path="/scheduler" element={<Navigate to="/scheduler/timeline" replace />} />
+                <Route path="/scheduler/timeline" element={<Schedule />} />
+                <Route path="/clubs" element={<Navigate to="/clubs/participants" replace />} />
+                <Route path="/clubs/participants" element={<Clubs />} />
+                <Route path="/clubs/map" element={<ClubsMap />} />
+                <Route path="/officials" element={<Navigate to="/officials/organisers" replace />} />
+                <Route path="/officials/organisers" element={<Officials />} />
+                <Route path="/officials/referees" element={<Officials />} />
+                <Route path="/officials/coordinators" element={<Officials />} />
+                <Route path="/locations" element={<Locations />} />
+                <Route path="/reports/by-pitch" element={<ByPitch />} />
+                <Route path="/reports/by-team" element={<ByTeam />} />
+                <Route path="/reports/print" element={<ReportsPrint />} />
+                <Route path="/reports/locations" element={<LocationsReport />} />
+                <Route path="/reports/play-time" element={<PlayTime />} />
+                <Route path="/reports/club-contributions" element={<ClubContributions />} />
+                <Route path="/competition/:id" element={<Navigate to="groups" replace />} />
+                <Route path="/competition/:id/groups" element={<CompetitionGroups />} />
+                <Route path="/competition/:id/fixtures" element={<CompetitionFixtures />} />
+                <Route path="/competition/:id/fixtures/unassigned" element={<CompetitionFixtures />} />
+                <Route path="/competition/:id/settings" element={<CompetitionSettings />} />
+                <Route path="*" element={<NotFound />} />
+              </Route>
           </Routes>
         </BrowserRouter>
       </TournamentProvider>

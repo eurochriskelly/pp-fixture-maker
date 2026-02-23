@@ -29,20 +29,11 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useTournament } from "@/context/TournamentContext";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
-import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList, Shield, Grid3x3, Users, Info, MapPin, Globe } from "lucide-react";
+import { ChevronRight, Trophy, Calendar, LayoutList, Shield, Grid3x3, Users, Info, MapPin, Globe } from "lucide-react";
 import { CompetitionBadge } from "@/components/CompetitionBadge";
 import { StorageIndicator } from "@/components/StorageIndicator";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { PublishDialog } from "@/components/PublishDialog";
 
 export default function SidebarLayout() {
@@ -50,17 +41,7 @@ export default function SidebarLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const isPrintMode = location.pathname === '/reports/print' || new URLSearchParams(location.search).get('print') === '1';
-  const [newCompName, setNewCompName] = React.useState("");
-  const [isDialogOpen, setIsDialogOpen] = React.useState(false);
   const [isPublishDialogOpen, setIsPublishDialogOpen] = React.useState(false);
-
-  const handleCreate = () => {
-    if (newCompName.trim()) {
-      addCompetition(newCompName);
-      setNewCompName("");
-      setIsDialogOpen(false);
-    }
-  };
 
   const getBreadcrumbs = () => {
     const path = location.pathname;
@@ -361,32 +342,6 @@ export default function SidebarLayout() {
                       <li className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
                         Competitions
                       </li>
-                      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                        <DialogTrigger asChild>
-                          <SidebarMenuSubItem>
-                            <SidebarMenuSubButton onClick={() => setIsDialogOpen(true)}>
-                              <Plus className="size-4" />
-                              <span>Add Competition</span>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Add Competition</DialogTitle>
-                          </DialogHeader>
-                          <div className="grid gap-4 py-4">
-                            <Input
-                              placeholder="Competition Name"
-                              value={newCompName}
-                              onChange={(e) => setNewCompName(e.target.value)}
-                              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-                            />
-                          </div>
-                          <DialogFooter>
-                            <Button onClick={handleCreate}>Create</Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
                       {competitions.map((comp) => (
                         <Collapsible
                           key={comp.id}

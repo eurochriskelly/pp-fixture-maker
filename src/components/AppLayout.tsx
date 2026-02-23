@@ -29,7 +29,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useTournament } from "@/context/TournamentContext";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
-import { ChevronRight, Plus, Trophy, Calendar, LayoutList, Shield, Grid3x3, Users, Info, MapPin, Globe } from "lucide-react";
+import { ChevronRight, Plus, Calendar, LayoutList, Shield, Grid3x3, Users, Info, MapPin, Globe } from "lucide-react";
 import { CompetitionBadge } from "@/components/CompetitionBadge";
 import { StorageIndicator } from "@/components/StorageIndicator";
 import { Button } from "@/components/ui/button";
@@ -177,15 +177,15 @@ export default function AppLayout() {
       {/* App Header with Tournament Controls */}
       <AppHeader />
       
-      <SidebarProvider className="flex-1 overflow-hidden">
-        <Sidebar collapsible="icon">
+      <SidebarProvider className="flex-1 overflow-hidden bg-slate-50">
+        <Sidebar collapsible="icon" className="md:top-16 md:h-[calc(100svh-4rem)]">
           <SidebarHeader>
             <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton size="lg" asChild>
-                    <Link to="/">
-                      <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                        <Trophy className="size-4" />
+                    <Link to="/overview">
+                      <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
+                        <Info className="size-4" />
                       </div>
                       <div className="grid flex-1 text-left text-sm leading-tight">
                         <span className="truncate font-semibold">
@@ -204,7 +204,7 @@ export default function AppLayout() {
             {currentTournament && (
               <div className="mt-4 px-2">
                 <Button
-                  className="w-full"
+                  className="w-full bg-sky-700 hover:bg-sky-800"
                   size="sm"
                   onClick={() => setIsPublishDialogOpen(true)}
                 >
@@ -220,16 +220,6 @@ export default function AppLayout() {
             <SidebarGroup>
               <SidebarGroupLabel>Platform</SidebarGroupLabel>
               <SidebarMenu>
-                {/* Overview */}
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={location.pathname === "/overview"}>
-                    <Link to="/overview">
-                      <Info />
-                      <span>Overview</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-
                 {/* Officials */}
                 <Collapsible asChild className="group/collapsible" defaultOpen={location.pathname.startsWith("/officials")}>
                   <SidebarMenuItem>
@@ -564,13 +554,13 @@ export default function AppLayout() {
             />
           )}
         </Sidebar>
-        <SidebarInset className="flex flex-col">
-          <div className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
+        <SidebarInset className="flex flex-col bg-slate-50">
+          <div className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-4">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 h-4" />
             {getBreadcrumbs()}
           </div>
-          <div className="flex-1 overflow-auto p-4">
+          <div className="flex-1 overflow-auto p-4 bg-slate-50">
             <Outlet />
           </div>
         </SidebarInset>

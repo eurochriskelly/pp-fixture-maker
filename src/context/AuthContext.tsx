@@ -26,6 +26,7 @@ export const useAuth = () => {
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const loginOverrideEnabled = import.meta.env.VITE_LOGIN_OVERRIDE === '1';
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -101,7 +102,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <AuthContext.Provider value={{
       user,
-      isAuthenticated: !!user,
+      isAuthenticated: loginOverrideEnabled || !!user,
       isLoading,
       login,
       logout,

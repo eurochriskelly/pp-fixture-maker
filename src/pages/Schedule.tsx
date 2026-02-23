@@ -643,14 +643,13 @@ const Schedule = () => {
   };
 
   const onDragOverFixture = (e: React.DragEvent, fixtureId: string) => {
-    e.stopPropagation();
-    onDragOver(e);
-
     if (!draggingItem || draggingItem.kind !== 'fixture' || draggingItem.id === fixtureId) {
       setDropTargetFixtureId(null);
       return;
     }
 
+    e.stopPropagation();
+    onDragOver(e);
     setInsertTarget(null);
     setDropTargetFixtureId(fixtureId);
   };
@@ -1023,15 +1022,24 @@ const Schedule = () => {
     const fixtureUpdates: FixtureBatchUpdate[] = [];
     const breakUpdates: BreakBatchUpdate[] = [];
 
-    ordered.forEach((timelineItem) => {
+    ordered.forEach((timelineItem, index) => {
       if (timelineItem.kind === 'fixture') {
-        const slackBefore = timelineItem.item.fixture.slackBefore || 0;
+        const previousItem = index > 0 ? ordered[index - 1] : null;
+        const rawSlackBefore = timelineItem.item.fixture.slackBefore || 0;
+        // An explicit break immediately before a fixture should consume pre-match wait.
+        const slackBefore = previousItem?.kind === 'break' ? 0 : rawSlackBefore;
         const startTime = timeFromMinutes(cursor + slackBefore);
-        cursor += getTimelineBlockMinutes(timelineItem);
+        const rawBlockMinutes = getFixtureBlockMinutes(timelineItem.item.fixture, timelineItem.item.groups);
+        const blockMinutes = rawBlockMinutes - rawSlackBefore + slackBefore;
+        cursor += blockMinutes;
         fixtureUpdates.push({
           competitionId: timelineItem.item.competitionId,
           fixtureId: timelineItem.item.fixture.id,
-          updates: { pitchId, startTime },
+          updates: {
+            pitchId,
+            startTime,
+            ...(slackBefore !== rawSlackBefore ? { slackBefore } : {}),
+          },
         });
       } else {
         const startTime = timeFromMinutes(cursor);
@@ -1055,24 +1063,42 @@ const Schedule = () => {
   ) => {
     // Apply break updates against an explicit base list when callers already added/removed breaks.
     const baseBreaks = options?.baseBreaks ?? pitchBreaks;
-    let nextBreaks = baseBreaks;
+    const breakUpdateMap = new Map(updates.breakUpdates.map((update) => [update.breakId, update.updates]));
+    const nextBreaks = baseBreaks.map((pitchBreak) =>
+      breakUpdateMap.has(pitchBreak.id) ? { ...pitchBreak, ...breakUpdateMap.get(pitchBreak.id) } : pitchBreak
+    );
 
-    if (updates.breakUpdates.length > 0) {
-      const breakUpdateMap = new Map(updates.breakUpdates.map((update) => [update.breakId, update.updates]));
-      nextBreaks = baseBreaks.map((pitchBreak) =>
-        breakUpdateMap.has(pitchBreak.id) ? { ...pitchBreak, ...breakUpdateMap.get(pitchBreak.id) } : pitchBreak
-      );
-    }
+    const currentBreakById = new Map(pitchBreaks.map((pitchBreak) => [pitchBreak.id, pitchBreak]));
+    const nextBreakIds = new Set(nextBreaks.map((pitchBreak) => pitchBreak.id));
 
-    // Apply break updates individually
-    if (updates.breakUpdates.length > 0) {
-      updates.breakUpdates.forEach((update) => {
-        updatePitchBreak(update.breakId, update.updates);
-      });
-    }
+    pitchBreaks.forEach((pitchBreak) => {
+      if (!nextBreakIds.has(pitchBreak.id)) {
+        deletePitchBreak(pitchBreak.id);
+      }
+    });
+
+    nextBreaks.forEach((pitchBreak) => {
+      const currentBreak = currentBreakById.get(pitchBreak.id);
+      const hasChanged =
+        !currentBreak ||
+        currentBreak.pitchId !== pitchBreak.pitchId ||
+        currentBreak.startTime !== pitchBreak.startTime ||
+        currentBreak.duration !== pitchBreak.duration ||
+        currentBreak.label !== pitchBreak.label;
+
+      if (hasChanged) {
+        updatePitchBreak(pitchBreak.id, {
+          pitchId: pitchBreak.pitchId,
+          startTime: pitchBreak.startTime,
+          duration: pitchBreak.duration,
+          label: pitchBreak.label,
+        });
+      }
+    });
 
     if (updates.fixtureUpdates.length > 0) {
-      batchUpdateFixtures(updates.fixtureUpdates, true, pitchBreaks);
+      // Keep manual timeline ordering authoritative; recalculation can reintroduce computed slackBefore.
+      batchUpdateFixtures(updates.fixtureUpdates);
     }
   };
 
@@ -1144,13 +1170,11 @@ const Schedule = () => {
 
   const insertPreviewMap = new Map<string, Partial<Fixture>>(
     insertPreviewUpdates.fixtureUpdates
-      .filter((update) => !(draggingItem?.kind === 'fixture' && update.fixtureId === draggingItem.id))
       .map((update) => [update.fixtureId, update.updates])
   );
 
   const insertPreviewBreakMap = new Map<string, Partial<PitchBreakItem>>(
     insertPreviewUpdates.breakUpdates
-      .filter((update) => !(draggingItem?.kind === 'break' && update.breakId === draggingItem.id))
       .map((update) => [update.breakId, update.updates])
   );
 
@@ -1265,10 +1289,13 @@ const Schedule = () => {
   };
 
   const onDropFixture = (e: React.DragEvent, targetFixtureId: string) => {
+    const sourceDragItem = getDragItemFromDataTransfer(e.dataTransfer);
+    if (!sourceDragItem || sourceDragItem.kind !== 'fixture' || sourceDragItem.id === targetFixtureId) {
+      return;
+    }
+
     e.preventDefault();
     e.stopPropagation();
-    const sourceDragItem = getDragItemFromDataTransfer(e.dataTransfer);
-    if (!sourceDragItem || sourceDragItem.kind !== 'fixture' || sourceDragItem.id === targetFixtureId) return;
 
     swapFixtures(sourceDragItem.id, targetFixtureId);
     clearDragState();
@@ -1277,7 +1304,7 @@ const Schedule = () => {
   const onDropInsert = (e: React.DragEvent, pitchId: string, index: number) => {
     e.preventDefault();
     e.stopPropagation();
-    const sourceDragItem = getDragItemFromDataTransfer(e.dataTransfer);
+    const sourceDragItem = getDragItemFromDataTransfer(e.dataTransfer) ?? draggingItem;
     if (!sourceDragItem) return;
 
     const updates = computeInsertUpdates(sourceDragItem, pitchId, index);
