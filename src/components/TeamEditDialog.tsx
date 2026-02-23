@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from '@/lib/utils';
 import { Pencil, Trash2, Shield, Plus, X, Search, Check, Clipboard } from 'lucide-react';
+import { saveImage, isBase64Url } from '@/lib/imageStore';
+import { CrestImage } from '@/components/CrestImage';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
     Command,
@@ -197,13 +199,19 @@ export const TeamEditDialog: React.FC<TeamEditDialogProps> = ({ competitionId, t
         }
     }, [clubId]);
 
-    const handleSave = () => {
+    const handleSave = async () => {
+        // Save crest to IndexedDB if it's a base64 URL
+        let crestRef = crest;
+        if (isBase64Url(crest)) {
+            crestRef = await saveImage(`team-${competitionId}-${team.id}`, crest);
+        }
+
         updateTeam(competitionId, team.id, {
             name,
             initials,
             primaryColor,
             secondaryColor,
-            crest,
+            crest: crestRef,
             clubId: clubId === "none" ? undefined : clubId,
             secondaryClubIds,
             clubContributions: contributions,
@@ -308,7 +316,7 @@ export const TeamEditDialog: React.FC<TeamEditDialogProps> = ({ competitionId, t
                                     }}
                                 >
                                     {crest ? (
-                                        <img src={crest} alt="Crest" className="w-full h-full object-contain p-1" />
+                                        <CrestImage src={crest} alt="Crest" className="w-full h-full object-contain p-1" />
                                     ) : (
                                         initials
                                     )}

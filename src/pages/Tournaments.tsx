@@ -59,8 +59,8 @@ const Tournaments = () => {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '') || 'tournament';
 
-  const handleExportTournament = (tournament: Tournament) => {
-    const archiveBlob = createPppArchive(tournament);
+  const handleExportTournament = async (tournament: Tournament) => {
+    const archiveBlob = await createPppArchive(tournament);
     const url = URL.createObjectURL(archiveBlob);
     const fileName = `${safeFileName(tournament.name)}.ppp`;
 

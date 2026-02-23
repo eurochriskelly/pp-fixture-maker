@@ -1,4 +1,5 @@
 import { Tournament } from '@/lib/types';
+import { getImageBlob, blobToDataUrl, saveImage, isIndexedDBUrl, isBase64Url } from '@/lib/imageStore';
 
 const ZIP_LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
 const ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
@@ -37,11 +38,46 @@ const crc32 = (bytes: Uint8Array): number => {
 const readUint32 = (view: DataView, offset: number) => view.getUint32(offset, true);
 const readUint16 = (view: DataView, offset: number) => view.getUint16(offset, true);
 
-export const createPppArchive = (tournament: Tournament): Blob => {
+/**
+ * Prepare tournament data for export by converting IndexedDB image references back to base64
+ */
+async function prepareTournamentForExport(tournament: Tournament): Promise<Tournament> {
+  // Clone the tournament to avoid mutating the original
+  const exportedTournament: Tournament = JSON.parse(JSON.stringify(tournament));
+  
+  // Convert club crests
+  for (const club of exportedTournament.clubs) {
+    if (club.crest && isIndexedDBUrl(club.crest)) {
+      const blob = await getImageBlob(club.crest);
+      if (blob) {
+        club.crest = await blobToDataUrl(blob);
+      }
+    }
+  }
+  
+  // Convert team crests
+  for (const competition of exportedTournament.competitions) {
+    for (const team of competition.teams) {
+      if (team.crest && isIndexedDBUrl(team.crest)) {
+        const blob = await getImageBlob(team.crest);
+        if (blob) {
+          team.crest = await blobToDataUrl(blob);
+        }
+      }
+    }
+  }
+  
+  return exportedTournament;
+}
+
+export const createPppArchive = async (tournament: Tournament): Promise<Blob> => {
+  // Prepare tournament data (convert IndexedDB images to base64)
+  const exportableTournament = await prepareTournamentForExport(tournament);
+  
   const payload: PppArchivePayload = {
     format: ARCHIVE_FORMAT,
     exportedAt: new Date().toISOString(),
-    tournament
+    tournament: exportableTournament
   };
 
   const encoder = new TextEncoder();
@@ -125,6 +161,29 @@ const findEndOfCentralDirectoryOffset = (bytes: Uint8Array): number => {
   return -1;
 };
 
+/**
+ * Process imported tournament by converting base64 images to IndexedDB
+ */
+async function processImportedTournament(tournament: Tournament): Promise<Tournament> {
+  // Convert club crests
+  for (const club of tournament.clubs) {
+    if (club.crest && isBase64Url(club.crest)) {
+      club.crest = await saveImage(`club-${club.id}`, club.crest);
+    }
+  }
+  
+  // Convert team crests
+  for (const competition of tournament.competitions) {
+    for (const team of competition.teams) {
+      if (team.crest && isBase64Url(team.crest)) {
+        team.crest = await saveImage(`team-${competition.id}-${team.id}`, team.crest);
+      }
+    }
+  }
+  
+  return tournament;
+}
+
 export const parsePppArchive = async (file: File): Promise<PppArchivePayload> => {
   const buffer = await file.arrayBuffer();
   const bytes = new Uint8Array(buffer);
@@ -171,26 +230,24 @@ export const parsePppArchive = async (file: File): Promise<PppArchivePayload> =>
     throw new Error('Invalid PPP file: truncated archive data.');
   }
 
-  const fileData = bytes.slice(localDataOffset, localDataEnd);
-  if (compressedSize !== uncompressedSize) {
-    throw new Error('Invalid PPP file: unsupported compressed entry.');
-  }
-
   if (fileNameLength + extraLength + commentLength <= 0) {
     throw new Error('Invalid PPP file: malformed central directory.');
   }
 
   const decoder = new TextDecoder();
-  const rawJson = decoder.decode(fileData);
+  const rawJson = decoder.decode(bytes.slice(localDataOffset, localDataEnd));
   const parsed = JSON.parse(rawJson) as Partial<PppArchivePayload>;
 
   if (parsed.format !== ARCHIVE_FORMAT || !parsed.tournament) {
     throw new Error('Invalid PPP file: unsupported payload format.');
   }
 
+  // Process the tournament to convert base64 images to IndexedDB
+  const processedTournament = await processImportedTournament(parsed.tournament as Tournament);
+
   return {
     format: ARCHIVE_FORMAT,
     exportedAt: parsed.exportedAt || new Date().toISOString(),
-    tournament: parsed.tournament as Tournament
+    tournament: processedTournament
   };
 };

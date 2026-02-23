@@ -11,6 +11,8 @@ import { MapPin, Phone, Mail, User, Plus, Pencil, Trash2, Shield, Wand2, Loader2
 import { cn } from '@/lib/utils';
 import { searchClubInfo, processLogo } from '@/lib/clubSearch';
 import { useToast } from '@/hooks/use-toast';
+import { saveImage, isBase64Url } from '@/lib/imageStore';
+import { CrestImage } from '@/components/CrestImage';
 
 const DEFAULT_COLORS = [
     '#ef4444', // red-500
@@ -238,8 +240,15 @@ const ClubDialog = ({
         handleMagicSearch();
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         const coordinates = (lat && lng) ? { lat: parseFloat(lat), lng: parseFloat(lng) } : undefined;
+        
+        // Save crest to IndexedDB if it's a base64 URL
+        let crestRef = crest;
+        if (isBase64Url(crest)) {
+            const clubId = club?.id || crypto.randomUUID();
+            crestRef = await saveImage(`club-${clubId}`, crest);
+        }
         
         onSave({
             name,
@@ -252,7 +261,7 @@ const ClubDialog = ({
             primaryColor,
             secondaryColor,
             coordinates,
-            crest
+            crest: crestRef
         });
         setOpen(false);
         setCrestPasteError(null);
@@ -292,16 +301,13 @@ const ClubDialog = ({
                         <div className="flex gap-4 items-start">
                             {crest ? (
                                 <div className="w-24 h-24 rounded-lg flex items-center justify-center border-2 shadow-sm shrink-0 overflow-hidden bg-white relative group">
-                                    <img 
-                                        src={crest} 
-                                        alt="Crest" 
+                                    <CrestImage
+                                        src={crest}
+                                        alt="Crest"
                                         className="w-full h-full object-contain"
-                                        onError={(e) => {
-                                            // Fallback to placeholder if image fails to load
-                                            e.currentTarget.style.display = 'none';
-                                            e.currentTarget.parentElement?.classList.remove('bg-white');
-                                            e.currentTarget.parentElement?.classList.add('bg-muted');
-                                        }} 
+                                        onError={() => {
+                                            // Fallback handled by component
+                                        }}
                                     />
                                     <div 
                                         className="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center cursor-pointer transition-opacity"
@@ -546,21 +552,13 @@ const Clubs = () => {
                                                     style={{ backgroundColor: club.crest ? 'white' : (club.primaryColor || '#000'), color: club.secondaryColor || '#fff' }}
                                                 >
                                                     {club.crest ? (
-                                                        <img 
-                                                            src={club.crest} 
-                                                            alt={club.code} 
-                                                            className="w-full h-full object-contain" 
-                                                            onError={(e) => {
-                                                                e.currentTarget.style.display = 'none';
-                                                                // Show code instead by manipulating DOM or state? 
-                                                                // Simpler: just hide image and let parent background show.
-                                                                // Ideally we would revert to showing text, but for now just hiding broken image is better than showing broken icon.
-                                                                if (e.currentTarget.parentElement) {
-                                                                    e.currentTarget.parentElement.style.backgroundColor = club.primaryColor || '#000';
-                                                                    e.currentTarget.parentElement.innerText = club.code;
-                                                                    e.currentTarget.parentElement.style.color = club.secondaryColor || '#fff';
-                                                                }
-                                                            }}
+                                                        <CrestImage
+                                                            src={club.crest}
+                                                            alt={club.code}
+                                                            className="w-full h-full object-contain"
+                                                            fallback={
+                                                                <span style={{ color: club.secondaryColor || '#fff' }}>{club.code}</span>
+                                                            }
                                                         />
                                                     ) : (
                                                         club.code

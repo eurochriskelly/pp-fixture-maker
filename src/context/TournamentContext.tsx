@@ -3,6 +3,7 @@ import { Competition, Fixture, Pitch, Team, Group, Club, Location, PitchBreakIte
 import { v4 as uuidv4 } from 'uuid';
 import { getGroupPitchIds } from '@/lib/groupPitches';
 import { generateMatchIdsForCompetition } from '@/utils/matchIdUtils';
+import { migrateBase64ToIndexedDB, isBase64Url } from '@/lib/imageStore';
 
 interface TournamentContextType {
   tournaments: Tournament[];
@@ -230,6 +231,64 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setCurrentTournamentId(tournaments[0].id);
     }
   }, [currentTournamentId, tournaments]);
+
+  // Migrate base64 images to IndexedDB on load
+  useEffect(() => {
+    const migrateImages = async () => {
+      let hasChanges = false;
+      
+      const updatedTournaments = await Promise.all(
+        tournaments.map(async (tournament) => {
+          const updatedClubs = await Promise.all(
+            tournament.clubs.map(async (club) => {
+              if (club.crest && isBase64Url(club.crest)) {
+                const idbUrl = await migrateBase64ToIndexedDB(club.crest, `club-${club.id}`);
+                if (idbUrl !== club.crest) {
+                  hasChanges = true;
+                  return { ...club, crest: idbUrl };
+                }
+              }
+              return club;
+            })
+          );
+
+          const updatedCompetitions = await Promise.all(
+            tournament.competitions.map(async (competition) => {
+              const updatedTeams = await Promise.all(
+                competition.teams.map(async (team) => {
+                  if (team.crest && isBase64Url(team.crest)) {
+                    const idbUrl = await migrateBase64ToIndexedDB(
+                      team.crest,
+                      `team-${competition.id}-${team.id}`
+                    );
+                    if (idbUrl !== team.crest) {
+                      hasChanges = true;
+                      return { ...team, crest: idbUrl };
+                    }
+                  }
+                  return team;
+                })
+              );
+              return { ...competition, teams: updatedTeams };
+            })
+          );
+
+          return {
+            ...tournament,
+            clubs: updatedClubs,
+            competitions: updatedCompetitions,
+          };
+        })
+      );
+
+      if (hasChanges) {
+        setTournaments(updatedTournaments);
+      }
+    };
+
+    migrateImages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   // Save to local storage
   useEffect(() => {
