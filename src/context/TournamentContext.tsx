@@ -58,6 +58,12 @@ interface TournamentContextType {
   updateLocation: (id: string, updates: Partial<Location>) => void;
   deleteLocation: (id: string) => void;
 
+  // Pitch Break Actions
+  pitchBreaks: PitchBreakItem[];
+  addPitchBreak: (breakItem: Omit<PitchBreakItem, 'id'>) => void;
+  updatePitchBreak: (id: string, updates: Partial<PitchBreakItem>) => void;
+  deletePitchBreak: (id: string) => void;
+
   // Scheduling
   autoScheduleMatches: (competitionId: string, pitchBreaks?: PitchBreakItem[]) => void;
   autoAssignUmpires: (competitionId?: string) => void;
@@ -143,19 +149,45 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const saved = localStorage.getItem('tournament_maker_tournaments');
     if (saved) {
       const loadedTournaments: Tournament[] = JSON.parse(saved);
-      // Migrate: ensure all tournaments have updatedAt
-      return loadedTournaments.map(t => ({
+      
+      // Migrate pitch breaks from legacy localStorage key if needed
+      const legacyBreaksRaw = localStorage.getItem('tournament_pitch_breaks_v1');
+      const hasMigratedBreaks = localStorage.getItem('ppp_breaks_migrated_v2');
+      let legacyBreaks: PitchBreakItem[] = [];
+      
+      if (legacyBreaksRaw && !hasMigratedBreaks) {
+        try {
+          const parsed = JSON.parse(legacyBreaksRaw);
+          if (Array.isArray(parsed)) {
+            legacyBreaks = parsed;
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      }
+      
+      const migratedTournaments = loadedTournaments.map((t, index) => ({
         ...t,
         locations: t.locations || [],
         pitches: (t.pitches || []).map((pitch) => ({
           ...pitch,
           locationId: pitch.locationId,
         })),
-        competitions: t.competitions.map((comp, index) => ({
+        competitions: t.competitions.map((comp, compIndex) => ({
           ...comp,
-          color: comp.color || generateCompetitionColor(index)
-        }))
+          color: comp.color || generateCompetitionColor(compIndex)
+        })),
+        // Migrate breaks to first tournament if they haven't been migrated yet
+        pitchBreaks: t.pitchBreaks || (index === 0 ? legacyBreaks : [])
       }));
+      
+      // Mark migration as complete and remove legacy data
+      if (legacyBreaks.length > 0 && !hasMigratedBreaks) {
+        localStorage.setItem('ppp_breaks_migrated_v2', 'true');
+        localStorage.removeItem('tournament_pitch_breaks_v1');
+      }
+      
+      return migratedTournaments;
     }
     
     // Check for legacy data and migrate if needed
@@ -176,7 +208,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         competitions: legacyCompetitions ? JSON.parse(legacyCompetitions) : [],
         pitches: legacyPitches ? JSON.parse(legacyPitches) : [],
         clubs: legacyClubs ? JSON.parse(legacyClubs) : [],
-        locations: []
+        locations: [],
+        pitchBreaks: []
       };
       
       // Migrate: ensure competitions have colors
@@ -224,6 +257,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const pitches = currentTournament?.pitches || [];
   const clubs = currentTournament?.clubs || [];
   const locations = currentTournament?.locations || [];
+  const pitchBreaks = currentTournament?.pitchBreaks || [];
 
   // Handle migration: if we have tournaments but no current selection, select the first one
   useEffect(() => {
@@ -318,7 +352,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       competitions: [],
       pitches: [],
       clubs: [],
-      locations: []
+      locations: [],
+      pitchBreaks: []
     };
     setTournaments(prev => [...prev, newTournament]);
     return newTournament;
@@ -344,7 +379,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         locationId: pitch.locationId,
       })),
       clubs: tournament.clubs || [],
-      locations: tournament.locations || []
+      locations: tournament.locations || [],
+      pitchBreaks: tournament.pitchBreaks || []
     };
 
     setTournaments(prev => [...prev, normalizedTournament]);
@@ -369,10 +405,38 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const updateCurrentTournament = useCallback((updater: (t: Tournament) => Tournament) => {
     if (!currentTournamentId) return;
-    setTournaments(prev => prev.map(t => 
+    setTournaments(prev => prev.map(t =>
       t.id === currentTournamentId ? updater(t) : t
     ));
   }, [currentTournamentId]);
+
+  // Pitch Break Actions
+  const addPitchBreak = useCallback((breakItem: Omit<PitchBreakItem, 'id'>) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      pitchBreaks: [...(t.pitchBreaks || []), { ...breakItem, id: uuidv4() }],
+      updatedAt: new Date().toISOString()
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
+
+  const updatePitchBreak = useCallback((id: string, updates: Partial<PitchBreakItem>) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      pitchBreaks: (t.pitchBreaks || []).map(pb => pb.id === id ? { ...pb, ...updates } : pb),
+      updatedAt: new Date().toISOString()
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
+
+  const deletePitchBreak = useCallback((id: string) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament(t => ({
+      ...t,
+      pitchBreaks: (t.pitchBreaks || []).filter(pb => pb.id !== id),
+      updatedAt: new Date().toISOString()
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
 
   const addCompetition = useCallback((name: string) => {
     if (!currentTournamentId) return;
@@ -927,6 +991,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         ...t,
         pitches: filteredPitches,
         competitions: updatedComps,
+        pitchBreaks: (t.pitchBreaks || []).filter(pb => pb.pitchId !== id),
         updatedAt: new Date().toISOString()
       };
     });
@@ -1658,6 +1723,10 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       addLocation,
       updateLocation,
       deleteLocation,
+      pitchBreaks,
+      addPitchBreak,
+      updatePitchBreak,
+      deletePitchBreak,
       addTeam,
       updateTeam,
       deleteTeam,
