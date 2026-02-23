@@ -1,11 +1,11 @@
 import React from 'react';
 import { useTournament } from '@/context/TournamentContext';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, Trash2, Calendar, Trophy, ChevronRight, FolderOpen } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Plus, Trash2, Trophy, ChevronRight, FolderOpen, Download, Upload } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
   DialogContent,
@@ -14,12 +14,17 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { format } from 'date-fns';
+import { useToast } from '@/hooks/use-toast';
+import { createPppArchive, parsePppArchive } from '@/lib/pppArchive';
+import { Tournament } from '@/lib/types';
 
 const Tournaments = () => {
-  const { tournaments, addTournament, deleteTournament, setCurrentTournament, currentTournament } = useTournament();
+  const { tournaments, addTournament, importTournament, deleteTournament, setCurrentTournament, currentTournament } = useTournament();
   const [newTournamentName, setNewTournamentName] = React.useState('');
   const [newTournamentDescription, setNewTournamentDescription] = React.useState('');
   const [isDialogOpen, setIsDialogOpen] = React.useState(false);
+  const importInputRef = React.useRef<HTMLInputElement | null>(null);
+  const { toast } = useToast();
   const navigate = useNavigate();
 
   const handleCreate = () => {
@@ -47,8 +52,60 @@ const Tournaments = () => {
     }
   };
 
+  const safeFileName = (name: string) =>
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'tournament';
+
+  const handleExportTournament = (tournament: Tournament) => {
+    const archiveBlob = createPppArchive(tournament);
+    const url = URL.createObjectURL(archiveBlob);
+    const fileName = `${safeFileName(tournament.name)}.ppp`;
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportClick = () => {
+    importInputRef.current?.click();
+  };
+
+  const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      const payload = await parsePppArchive(file);
+      const imported = importTournament(payload.tournament);
+      toast({
+        title: 'Tournament imported',
+        description: `${imported.name} was added from ${file.name}.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid PPP archive.';
+      toast({
+        title: 'Import failed',
+        description: message,
+        variant: 'destructive'
+      });
+    }
+  };
+
   return (
     <div className="container mx-auto p-4 max-w-5xl space-y-8">
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".ppp,application/zip"
+        className="hidden"
+        onChange={handleImportFileChange}
+      />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Tournaments</h1>
@@ -109,12 +166,16 @@ const Tournaments = () => {
             <p className="text-muted-foreground text-center max-w-sm mb-4">
               Create your first tournament to start organizing competitions, teams, and fixtures.
             </p>
-            <Button onClick={() => setIsDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Tournament
-            </Button>
-          </CardContent>
-        </Card>
+              <Button onClick={() => setIsDialogOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Tournament
+              </Button>
+              <Button variant="outline" onClick={handleImportClick}>
+                <Upload className="mr-2 h-4 w-4" />
+                Import Tournament
+              </Button>
+            </CardContent>
+          </Card>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {tournaments.map((tournament) => (
@@ -177,6 +238,16 @@ const Tournaments = () => {
                     </>
                   )}
                 </Button>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <Button variant="outline" onClick={() => handleExportTournament(tournament)}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Export
+                  </Button>
+                  <Button variant="outline" onClick={handleImportClick}>
+                    <Upload className="mr-2 h-4 w-4" />
+                    Import
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}

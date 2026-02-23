@@ -53,6 +53,10 @@ export interface Fixture {
   groupId?: string; // Optional: Link fixture to a group
   matchId?: string; // Optional: Stable ID for knockout matches (e.g. "QF1", "Final")
   slackBefore?: number; // minutes of padding before match (e.g. knockout dependency wait)
+  umpireTeam?: {
+    type: "by-id" | "by-match";
+    value: string; // team UUID or "Winner/Loser MatchID"
+  };
 }
 
 export interface Competition {
