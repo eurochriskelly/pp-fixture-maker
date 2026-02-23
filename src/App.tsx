@@ -9,6 +9,7 @@ import Schedule from "./pages/Schedule";
 import Clubs from "./pages/Clubs";
 import ClubsMap from "./pages/ClubsMap";
 import ByPitch from "./pages/ByPitch";
+import ByTeam from "./pages/ByTeam";
 import PlayTime from "./pages/PlayTime";
 import ClubContributions from "./pages/ClubContributions";
 import Officials from "./pages/Officials";
@@ -42,6 +43,7 @@ const App = () => (
               <Route path="/officials/referees" element={<Officials />} />
               <Route path="/officials/coordinators" element={<Officials />} />
               <Route path="/reports/by-pitch" element={<ByPitch />} />
+              <Route path="/reports/by-team" element={<ByTeam />} />
               <Route path="/reports/play-time" element={<PlayTime />} />
               <Route path="/reports/club-contributions" element={<ClubContributions />} />
               <Route path="/competition/:id" element={<Navigate to="groups" replace />} />

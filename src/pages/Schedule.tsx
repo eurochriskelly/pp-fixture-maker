@@ -3,11 +3,9 @@ import { createPortal } from 'react-dom';
 import { useTournament } from '@/context/TournamentContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { Clock, Plus, X, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
+import { Clock, Plus, X, ChevronRight, RotateCcw, AlertTriangle } from 'lucide-react';
 import { getFixtureSlack, minutesFromMidnight, timeFromMinutes } from '@/utils/scheduleUtils';
-import { Competition, Fixture, Group, Pitch, PitchBreakItem } from '@/lib/types';
+import { Fixture, Group, Pitch, PitchBreakItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { getGroupPitchIds } from '@/lib/groupPitches';
 import { createGroupColorMap, getGroupColorFromMap } from '@/lib/groupColors';
@@ -19,8 +17,6 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-  SidebarMenuSub,
-  SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 import { FixtureDetailsPanel } from '@/components/FixtureDetailsPanel';
 import { v4 as uuidv4 } from 'uuid';
@@ -36,10 +32,11 @@ const DEFAULT_GROUP_SLACK = 5;
 const DEFAULT_GROUP_REST = 20;
 const MIN_PITCH_WINDOW_MINUTES = 10;
 const DRAG_SNAP_MINUTES = 5;
-const DEFAULT_BREAK_DURATION = 15;
+const DEFAULT_BREAK_DURATION = 20;
 const MIN_BREAK_DURATION = 5;
+const BREAK_DURATION_STEP_MINUTES = 1;
 const PITCH_BREAKS_STORAGE_KEY = 'tournament_pitch_breaks_v1';
-const BREAK_PATTERN_DARK = 'repeating-linear-gradient(45deg, #1f2937, #1f2937 4px, #111827 4px, #111827 8px)';
+const BREAK_PATTERN_GRAY = 'repeating-linear-gradient(45deg, #6b7280, #6b7280 4px, #4b5563 4px, #4b5563 8px)';
 const DRAWER_HEIGHT_PX = 280; // Fixed height for the details drawer
 
 type PitchFixtureItem = {
@@ -86,135 +83,6 @@ type DragItemRef = {
   id: string;
 };
 
-const UnassignedCompetitionSection = ({
-  comp,
-  fixtures,
-  effectivePitches,
-  onDragStart,
-  onDragEnd,
-  onDropUnassigned,
-  handleAssign,
-  showHeader = true,
-}: {
-  comp: Competition;
-  fixtures: (Fixture & { competitionName: string })[];
-  effectivePitches: (Pitch & { name: string; startTime: string; endTime: string })[];
-  onDragStart: (e: React.DragEvent, dragItem: DragItemRef) => void;
-  onDragEnd: () => void;
-  onDropUnassigned: (e: React.DragEvent) => void;
-  handleAssign: (competitionId: string, fixtureId: string, pitchId: string, time: string) => void;
-  showHeader?: boolean;
-}) => {
-  const [isOpen, setIsOpen] = React.useState(true);
-  const competitionColor = comp.color ?? '#1e293b';
-
-  const fixtureList = (
-    <div
-      className={cn('space-y-2 pb-4 pt-2', {
-        'px-4': showHeader,
-        'px-0': !showHeader,
-      })}
-      onDrop={onDropUnassigned}
-    >
-      {fixtures.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-3 py-6 text-center text-sm text-muted-foreground">
-          Drag fixtures here to move them to {comp.name}
-        </div>
-      ) : (
-        fixtures.map((fixture) => {
-          const home = comp.teams.find((t) => t.id === fixture.homeTeamId);
-          const away = comp.teams.find((t) => t.id === fixture.awayTeamId);
-          const isKnockout = fixture.stage && fixture.stage !== 'Group';
-          const homeDisplay =
-            home?.name ||
-            (fixture.homeTeamId === 'TBD'
-              ? 'TBD'
-              : fixture.description?.split(' vs ')[0] || 'Bye');
-          const awayDisplay =
-            away?.name ||
-            (fixture.awayTeamId === 'TBD'
-              ? 'TBD'
-              : fixture.description?.split(' vs ')[1] || 'Bye');
-
-          return (
-            <div
-              key={fixture.id}
-              draggable
-              onDragStart={(e) => onDragStart(e, { kind: 'fixture', id: fixture.id })}
-              onDragEnd={onDragEnd}
-              className={cn(
-                'p-2 border rounded shadow-sm text-xs cursor-move relative',
-                isKnockout ? 'bg-purple-50 hover:bg-purple-100' : 'bg-white hover:bg-slate-50'
-              )}
-            >
-              <div className="flex justify-between items-center gap-2">
-                <span className="truncate">{homeDisplay}</span>
-                <span className="text-muted-foreground text-[10px]">vs</span>
-                <span className="truncate">{awayDisplay}</span>
-              </div>
-              {isKnockout && fixture.description && (
-                <div className="text-[10px] text-purple-600 italic mt-1 truncate">
-                  {fixture.description}
-                </div>
-              )}
-              <div className="mt-2 flex gap-1">
-                <Select
-                  onValueChange={(val) =>
-                    handleAssign(fixture.competitionId, fixture.id, val, DEFAULT_ASSIGN_TIME)
-                  }
-                >
-                  <SelectTrigger className="h-6 text-[10px] w-full">
-                    <SelectValue placeholder="Assign" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {effectivePitches.map((pitch) => (
-                      <SelectItem key={pitch.id} value={pitch.id}>
-                        {pitch.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          );
-        })
-      )}
-    </div>
-  );
-
-  if (!showHeader) {
-    return fixtureList;
-  }
-
-  return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div
-        className="absolute inset-y-0 left-0 w-1 rounded-l-2xl"
-        style={{ backgroundColor: competitionColor }}
-      />
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between gap-2 pr-4 pl-6 py-3 text-sm font-semibold text-slate-900"
-      >
-        <span className="text-sm font-semibold tracking-wide uppercase">
-          {comp.name.toUpperCase()}
-        </span>
-        <span className="flex items-center gap-3 text-[11px] text-muted-foreground uppercase">
-          <span>{fixtures.length} FIXTURES</span>
-          <ChevronDown
-            className={cn('h-4 w-4 transition-transform duration-200', {
-              'rotate-180': isOpen,
-            })}
-          />
-        </span>
-      </button>
-
-      {isOpen && fixtureList}
-    </div>
-  );
-};
-
 const Schedule = () => {
   const {
     competitions,
@@ -224,6 +92,7 @@ const Schedule = () => {
     deletePitch,
     updateFixture,
     autoScheduleMatches,
+    autoAssignUmpires,
     resetAllSchedules,
     batchUpdateFixtures,
     updateGroup,
@@ -276,6 +145,7 @@ const Schedule = () => {
   
   // Selection state
   const [selectedFixtureId, setSelectedFixtureId] = React.useState<string | null>(null);
+  const [selectedBreakId, setSelectedBreakId] = React.useState<string | null>(null);
 
   const clearDragState = React.useCallback(() => {
     setDraggingItem(null);
@@ -637,19 +507,23 @@ const Schedule = () => {
     }, 0);
   };
 
+  const handleAutoAssignUmpires = () => {
+    autoAssignUmpires();
+  };
+
   const handleResetSchedule = () => {
     const confirmed = window.confirm('Remove all fixtures from the schedule? They will become unassigned.');
     if (!confirmed) return;
     resetAllSchedules();
   };
 
-  const handleAssign = (competitionId: string, fixtureId: string, pitchId: string, time: string) => {
-    if (!pitchId) return;
-    updateFixture(competitionId, fixtureId, {
-      pitchId,
-      startTime: time
-    }, true, pitchBreaks);
-  };
+  const hasUnassignedUmpires = React.useMemo(() => {
+    return competitions.some((competition) =>
+      competition.fixtures.some(
+        (fixture) => fixture.pitchId && fixture.startTime && !fixture.umpireTeam
+      )
+    );
+  }, [competitions]);
 
   const handleUnassign = (fixtureId: string) => {
     const comp = competitions.find(c => c.fixtures.some(f => f.id === fixtureId));
@@ -663,6 +537,7 @@ const Schedule = () => {
 
   const handleFixtureClick = (fixtureId: string) => {
     setSelectedFixtureId(selectedFixtureId === fixtureId ? null : fixtureId);
+    setSelectedBreakId(null);
   };
 
   const setCompetitionOpen = (competitionId: string, open: boolean) => {
@@ -981,8 +856,10 @@ const Schedule = () => {
       )
       .filter((item) => item.fixture.pitchId === pitchId)
       .sort((a, b) => {
-        const aStart = minutesFromMidnight(a.fixture.startTime || DEFAULT_ASSIGN_TIME);
-        const bStart = minutesFromMidnight(b.fixture.startTime || DEFAULT_ASSIGN_TIME);
+        const aStart =
+          minutesFromMidnight(a.fixture.startTime || DEFAULT_ASSIGN_TIME) - (a.fixture.slackBefore || 0);
+        const bStart =
+          minutesFromMidnight(b.fixture.startTime || DEFAULT_ASSIGN_TIME) - (b.fixture.slackBefore || 0);
         if (aStart !== bStart) return aStart - bStart;
         return a.fixture.id.localeCompare(b.fixture.id);
       });
@@ -1020,14 +897,8 @@ const Schedule = () => {
     }));
 
     return [...fixtureItems, ...breakItems].sort((a, b) => {
-      const aStart =
-        a.kind === 'fixture'
-          ? minutesFromMidnight(a.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
-          : minutesFromMidnight(a.item.startTime || DEFAULT_ASSIGN_TIME);
-      const bStart =
-        b.kind === 'fixture'
-          ? minutesFromMidnight(b.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
-          : minutesFromMidnight(b.item.startTime || DEFAULT_ASSIGN_TIME);
+      const aStart = getTimelineStartMinutes(a);
+      const bStart = getTimelineStartMinutes(b);
 
       if (aStart !== bStart) return aStart - bStart;
       if (a.kind !== b.kind) return a.kind === 'fixture' ? -1 : 1;
@@ -1093,6 +964,16 @@ const Schedule = () => {
     return getFixtureBlockMinutes(timelineItem.item.fixture, timelineItem.item.groups);
   };
 
+  const getTimelineStartMinutes = (timelineItem: PitchTimelineItem) => {
+    if (timelineItem.kind === 'break') {
+      return minutesFromMidnight(timelineItem.item.startTime || DEFAULT_ASSIGN_TIME);
+    }
+
+    const fixtureStart = minutesFromMidnight(timelineItem.item.fixture.startTime || DEFAULT_ASSIGN_TIME);
+    const slackBefore = timelineItem.item.fixture.slackBefore || 0;
+    return fixtureStart - slackBefore;
+  };
+
   const buildPitchTimelineUpdates = (
     pitchId: string,
     ordered: PitchTimelineItem[]
@@ -1128,20 +1009,27 @@ const Schedule = () => {
     };
   };
 
-  const applyPitchTimelineUpdates = (updates: { fixtureUpdates: FixtureBatchUpdate[]; breakUpdates: BreakBatchUpdate[] }) => {
-    // Apply break updates first so pitchBreaks is current when batchUpdateFixtures runs
-    let currentBreaks = pitchBreaks;
+  const applyPitchTimelineUpdates = (
+    updates: { fixtureUpdates: FixtureBatchUpdate[]; breakUpdates: BreakBatchUpdate[] },
+    options?: { baseBreaks?: PitchBreakItem[] }
+  ) => {
+    // Apply break updates against an explicit base list when callers already added/removed breaks.
+    const baseBreaks = options?.baseBreaks ?? pitchBreaks;
+    let nextBreaks = baseBreaks;
+
     if (updates.breakUpdates.length > 0) {
       const breakUpdateMap = new Map(updates.breakUpdates.map((update) => [update.breakId, update.updates]));
-      const nextBreaks = pitchBreaks.map((pitchBreak) =>
+      nextBreaks = baseBreaks.map((pitchBreak) =>
         breakUpdateMap.has(pitchBreak.id) ? { ...pitchBreak, ...breakUpdateMap.get(pitchBreak.id) } : pitchBreak
       );
+    }
+
+    if (options?.baseBreaks || updates.breakUpdates.length > 0) {
       setPitchBreaks(nextBreaks);
-      currentBreaks = nextBreaks;
     }
 
     if (updates.fixtureUpdates.length > 0) {
-      batchUpdateFixtures(updates.fixtureUpdates, true, currentBreaks);
+      batchUpdateFixtures(updates.fixtureUpdates, true, nextBreaks);
     }
   };
 
@@ -1358,15 +1246,6 @@ const Schedule = () => {
     clearDragState();
   };
 
-  const onDropUnassigned = (e: React.DragEvent) => {
-    e.preventDefault();
-    const sourceDragItem = getDragItemFromDataTransfer(e.dataTransfer);
-    if (sourceDragItem?.kind === 'fixture') {
-      handleUnassign(sourceDragItem.id);
-      clearDragState();
-    }
-  };
-
   const handleAddBreak = (pitchId: string, insertIndex?: number) => {
     const pitchStart = effectivePitchById.get(pitchId)?.startTime || DEFAULT_ASSIGN_TIME;
     const timeline = listPitchTimeline(pitchId);
@@ -1376,16 +1255,12 @@ const Schedule = () => {
     if (insertIndex !== undefined && insertIndex < timeline.length) {
       const itemBefore = insertIndex > 0 ? timeline[insertIndex - 1] : undefined;
       startMinutes = itemBefore
-        ? (itemBefore.kind === 'fixture'
-            ? minutesFromMidnight(itemBefore.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
-            : minutesFromMidnight(itemBefore.item.startTime || DEFAULT_ASSIGN_TIME)) + getTimelineBlockMinutes(itemBefore)
+        ? getTimelineStartMinutes(itemBefore) + getTimelineBlockMinutes(itemBefore)
         : minutesFromMidnight(pitchStart);
     } else {
       const lastTimelineItem = timeline[timeline.length - 1];
       startMinutes = lastTimelineItem
-        ? (lastTimelineItem.kind === 'fixture'
-            ? minutesFromMidnight(lastTimelineItem.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
-            : minutesFromMidnight(lastTimelineItem.item.startTime || DEFAULT_ASSIGN_TIME)) + getTimelineBlockMinutes(lastTimelineItem)
+        ? getTimelineStartMinutes(lastTimelineItem) + getTimelineBlockMinutes(lastTimelineItem)
         : minutesFromMidnight(pitchStart);
     }
 
@@ -1399,9 +1274,9 @@ const Schedule = () => {
 
     const idx = insertIndex !== undefined ? Math.max(0, Math.min(insertIndex, timeline.length)) : timeline.length;
     const nextTimeline = [...timeline.slice(0, idx), { kind: 'break' as const, item: nextBreak }, ...timeline.slice(idx)];
-    setPitchBreaks((current) => [...current, nextBreak]);
+    const nextBreaks = [...pitchBreaks, nextBreak];
     const updates = buildPitchTimelineUpdates(pitchId, nextTimeline);
-    applyPitchTimelineUpdates(updates);
+    applyPitchTimelineUpdates(updates, { baseBreaks: nextBreaks });
     showChangeFeedback(getActuallyChangedFixtureIds(updates.fixtureUpdates));
   };
 
@@ -1410,15 +1285,27 @@ const Schedule = () => {
       (timelineItem) => !(timelineItem.kind === 'break' && timelineItem.item.id === breakId)
     );
 
-    setPitchBreaks((current) => current.filter((pitchBreak) => pitchBreak.id !== breakId));
+    const nextBreaks = pitchBreaks.filter((pitchBreak) => pitchBreak.id !== breakId);
     const updates = buildPitchTimelineUpdates(pitchId, nextTimeline);
-    applyPitchTimelineUpdates(updates);
+    applyPitchTimelineUpdates(updates, { baseBreaks: nextBreaks });
     showChangeFeedback(getActuallyChangedFixtureIds(updates.fixtureUpdates));
+    if (selectedBreakId === breakId) {
+      setSelectedBreakId(null);
+    }
   };
 
   const updateBreakLabel = (breakId: string, label: string) => {
     setPitchBreaks((current) =>
       current.map((pitchBreak) => (pitchBreak.id === breakId ? { ...pitchBreak, label } : pitchBreak))
+    );
+  };
+
+  const updateBreakDuration = (breakId: string, nextDuration: number) => {
+    const safeDuration = Math.max(MIN_BREAK_DURATION, nextDuration || MIN_BREAK_DURATION);
+    setPitchBreaks((current) =>
+      current.map((pitchBreak) =>
+        pitchBreak.id === breakId ? { ...pitchBreak, duration: safeDuration } : pitchBreak
+      )
     );
   };
 
@@ -1431,6 +1318,16 @@ const Schedule = () => {
       })
     );
   };
+
+  const commitBreakDuration = (pitchId: string) => {
+    const updates = buildPitchTimelineUpdates(pitchId, listPitchTimeline(pitchId));
+    applyPitchTimelineUpdates(updates);
+    showChangeFeedback(getActuallyChangedFixtureIds(updates.fixtureUpdates));
+  };
+
+  const selectedBreak = selectedBreakId
+    ? pitchBreaks.find((pitchBreak) => pitchBreak.id === selectedBreakId) || null
+    : null;
 
   const onBreakResizeMouseDown = (event: React.MouseEvent, pitchBreak: PitchBreakItem) => {
     event.preventDefault();
@@ -1450,7 +1347,7 @@ const Schedule = () => {
       const deltaPixels = event.clientY - draggingBreakResize.startClientY;
       const deltaMinutesRaw = deltaPixels / PIXELS_PER_MINUTE;
       const deltaMinutesSnapped =
-        Math.round(deltaMinutesRaw / DRAG_SNAP_MINUTES) * DRAG_SNAP_MINUTES;
+        Math.round(deltaMinutesRaw / BREAK_DURATION_STEP_MINUTES) * BREAK_DURATION_STEP_MINUTES;
       const nextDuration = Math.max(
         MIN_BREAK_DURATION,
         draggingBreakResize.initialDuration + deltaMinutesSnapped
@@ -1586,13 +1483,6 @@ const Schedule = () => {
     showChangeFeedback,
   ]);
 
-  // Data Preparation
-  const allFixtures = competitions.flatMap(comp =>
-    comp.fixtures.map(f => ({ ...f, competitionName: comp.name }))
-  );
-
-  const unassignedFixtures = allFixtures.filter(f => !getEffectiveFixture(f).pitchId);
-
   // Time grid helpers
   const totalMinutes = (VIEW_END_HOUR - VIEW_START_HOUR) * 60;
   const gridHeight = totalMinutes * PIXELS_PER_MINUTE;
@@ -1620,6 +1510,20 @@ const Schedule = () => {
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>
+          <SidebarMenuButton
+            onClick={handleAutoAssignUmpires}
+            tooltip={
+              hasUnassignedUmpires
+                ? 'Some scheduled matches could not be assigned an umpire automatically.'
+                : undefined
+            }
+          >
+            <Clock />
+            <span>Auto Assign Umpires</span>
+            {hasUnassignedUmpires && <AlertTriangle className="ml-auto h-3.5 w-3.5 text-amber-500" />}
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
           <SidebarMenuButton onClick={handleResetSchedule}>
             <RotateCcw /> <span>Reset Schedule</span>
           </SidebarMenuButton>
@@ -1636,149 +1540,154 @@ const Schedule = () => {
   const CompetitionsDetailPortal = (
     <SidebarGroup className="mt-4">
       <SidebarGroupLabel>Competitions</SidebarGroupLabel>
-        {competitions.length === 0 ? (
-          <div className="text-xs text-muted-foreground px-2 py-1">No competitions.</div>
-        ) : (
-          <SidebarMenu>
-            {competitions.map((comp) => {
-              const groups = comp.groups ?? [];
-              const compUnassignedFixtures = unassignedFixtures.filter(
-                (fixture) => fixture.competitionId === comp.id
-              );
-              const isOpen = openCompetitionIds.includes(comp.id);
-              const groupColorMap = createGroupColorMap(groups);
+      {competitions.length === 0 ? (
+        <div className="px-2 py-1 text-xs text-muted-foreground">No competitions.</div>
+      ) : (
+        <SidebarMenu className="space-y-2">
+          {competitions.map((comp) => {
+            const groups = comp.groups ?? [];
+            const isOpen = openCompetitionIds.includes(comp.id);
+            const groupColorMap = createGroupColorMap(groups);
 
-              return (
-                <Collapsible
-                  key={comp.id}
-                  open={isOpen}
-                  onOpenChange={(open) => setCompetitionOpen(comp.id, open)}
-                  asChild
-                  className="group/collapsible"
-                >
-                  <SidebarMenuItem>
-                    <CollapsibleTrigger asChild>
-                      <SidebarMenuButton tooltip={comp.name}>
-                        <CompetitionBadge
-                          code={comp.code}
-                          color={comp.color}
-                          size="sm"
-                          className="h-5 w-5 text-[9px]"
-                        />
-                        <span>{comp.name}</span>
-                        <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                      </SidebarMenuButton>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <SidebarMenuSub>
-                        <SidebarMenuSubItem>
-                          <div className="space-y-3 px-2 pb-3 pt-1">
-                            <div className="space-y-1">
-                              <div className="text-[10px] font-bold text-muted-foreground uppercase">Groups</div>
-                              {groups.map((group) => {
-                                const selectedPitchIds = getGroupPitchIds(group);
-                                const groupColor = getGroupColorFromMap(groupColorMap, group.id);
-                                return (
-                                  <div key={group.id} className="text-[10px] border rounded p-1.5 bg-background">
-                                    <div className="flex items-center gap-1 mb-1">
-                                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: groupColor }} />
-                                      <span className="font-medium truncate">{group.name}</span>
-                                    </div>
-                                    <div className="flex gap-2 mb-2">
-                                      <div className="flex flex-col items-center gap-0.5">
-                                        <span className="text-[8px] font-bold text-muted-foreground">DUR</span>
-                                        <input
-                                          type="number"
-                                          className="h-5 text-[9px] px-1 w-10 border rounded text-center"
-                                          value={group.defaultDuration ?? DEFAULT_GROUP_DURATION}
-                                          onChange={(e) =>
-                                            updateGroup(comp.id, group.id, {
-                                              defaultDuration: Math.max(1, parseInt(e.target.value) || DEFAULT_GROUP_DURATION),
-                                            })
-                                          }
-                                        />
-                                      </div>
-                                      <div className="flex flex-col items-center gap-0.5">
-                                        <span className="text-[8px] font-bold text-muted-foreground">SLACK</span>
-                                        <input
-                                          type="number"
-                                          className="h-5 text-[9px] px-1 w-10 border rounded text-center"
-                                          value={group.defaultSlack ?? DEFAULT_GROUP_SLACK}
-                                          onChange={(e) =>
-                                            updateGroup(comp.id, group.id, {
-                                              defaultSlack: Math.max(0, parseInt(e.target.value) || DEFAULT_GROUP_SLACK),
-                                            })
-                                          }
-                                        />
-                                      </div>
-                                      <div className="flex flex-col items-center gap-0.5">
-                                        <span className="text-[8px] font-bold text-muted-foreground">REST</span>
-                                        <input
-                                          type="number"
-                                          className="h-5 text-[9px] px-1 w-10 border rounded text-center"
-                                          value={group.defaultRest ?? DEFAULT_GROUP_REST}
-                                          onChange={(e) =>
-                                            updateGroup(comp.id, group.id, {
-                                              defaultRest: Math.max(1, parseInt(e.target.value) || DEFAULT_GROUP_REST),
-                                            })
-                                          }
-                                        />
-                                      </div>
-                                    </div>
-                                    <div className="flex flex-wrap gap-1">
-                                      {pitches.map((p) => (
-                                        <div
-                                          key={p.id}
-                                          className={cn(
-                                            'px-1 rounded cursor-pointer',
-                                            selectedPitchIds.includes(p.id)
-                                              ? 'bg-primary text-primary-foreground'
-                                              : 'bg-muted text-muted-foreground'
-                                          )}
-                                          onClick={() =>
-                                            toggleGroupPitch(comp.id, group, p.id, !selectedPitchIds.includes(p.id))
-                                          }
-                                        >
-                                          {p.name}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
+            return (
+              <Collapsible
+                key={comp.id}
+                open={isOpen}
+                onOpenChange={(open) => setCompetitionOpen(comp.id, open)}
+                asChild
+                className="group/competition"
+              >
+                <SidebarMenuItem className="rounded-md border border-sidebar-border/80 bg-background/40">
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton tooltip={comp.name} className="h-9 px-2">
+                      <CompetitionBadge
+                        code={comp.code}
+                        color={comp.color}
+                        size="sm"
+                        className="h-5 w-5 text-[9px]"
+                      />
+                      <span className="truncate">{comp.name}</span>
+                      <span className="ml-auto flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <span className="rounded bg-muted px-1.5 py-0.5">{groups.length}</span>
+                        <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-data-[state=open]/competition:rotate-90" />
+                      </span>
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="space-y-1.5 border-t border-sidebar-border/70 px-2 py-2">
+                      {groups.length === 0 ? (
+                        <div className="rounded-md border border-dashed px-2 py-1.5 text-[11px] text-muted-foreground">
+                          No groups configured.
+                        </div>
+                      ) : (
+                        groups.map((group) => {
+                          const selectedPitchIds = getGroupPitchIds(group);
+                          const groupColor = getGroupColorFromMap(groupColorMap, group.id);
 
-                            <div className="space-y-1">
-                              <div className="text-[10px] font-bold text-muted-foreground uppercase flex justify-between">
-                                <span>Unassigned</span>
-                                <Badge variant="secondary" className="h-4 px-1 text-[9px]">
-                                  {compUnassignedFixtures.length}
-                                </Badge>
-                              </div>
-                              <div onDragOver={onDragOver}>
-                                <UnassignedCompetitionSection
-                                  comp={comp}
-                                  fixtures={compUnassignedFixtures}
-                                  effectivePitches={effectivePitches}
-                                  onDragStart={onDragStart}
-                                  onDragEnd={onDragEnd}
-                                  onDropUnassigned={onDropUnassigned}
-                                  handleAssign={handleAssign}
-                                  showHeader={false}
+                          return (
+                            <div
+                              key={group.id}
+                              className="rounded-md border border-sidebar-border/70 bg-background/70 p-2"
+                            >
+                              <div className="mb-1.5 flex items-center gap-2">
+                                <span
+                                  className="h-2 w-2 rounded-full"
+                                  style={{ backgroundColor: groupColor }}
                                 />
+                                <span className="truncate text-xs font-medium">{group.name}</span>
                               </div>
+                              <div className="mb-1.5 grid grid-cols-3 gap-1">
+                                <label className="flex items-center gap-1 rounded border border-sidebar-border/70 bg-background px-1.5 py-1 text-[9px] text-muted-foreground">
+                                  <span className="font-semibold uppercase">D</span>
+                                  <input
+                                    type="number"
+                                    className="h-4 w-full min-w-0 border-0 bg-transparent p-0 text-right text-[11px] font-medium text-foreground focus:outline-none"
+                                    value={group.defaultDuration ?? DEFAULT_GROUP_DURATION}
+                                    onChange={(e) =>
+                                      updateGroup(comp.id, group.id, {
+                                        defaultDuration: Math.max(
+                                          1,
+                                          parseInt(e.target.value) || DEFAULT_GROUP_DURATION
+                                        ),
+                                      })
+                                    }
+                                    aria-label={`${group.name} duration`}
+                                  />
+                                </label>
+                                <label className="flex items-center gap-1 rounded border border-sidebar-border/70 bg-background px-1.5 py-1 text-[9px] text-muted-foreground">
+                                  <span className="font-semibold uppercase">S</span>
+                                  <input
+                                    type="number"
+                                    className="h-4 w-full min-w-0 border-0 bg-transparent p-0 text-right text-[11px] font-medium text-foreground focus:outline-none"
+                                    value={group.defaultSlack ?? DEFAULT_GROUP_SLACK}
+                                    onChange={(e) =>
+                                      updateGroup(comp.id, group.id, {
+                                        defaultSlack: Math.max(
+                                          0,
+                                          parseInt(e.target.value) || DEFAULT_GROUP_SLACK
+                                        ),
+                                      })
+                                    }
+                                    aria-label={`${group.name} slack`}
+                                  />
+                                </label>
+                                <label className="flex items-center gap-1 rounded border border-sidebar-border/70 bg-background px-1.5 py-1 text-[9px] text-muted-foreground">
+                                  <span className="font-semibold uppercase">R</span>
+                                  <input
+                                    type="number"
+                                    className="h-4 w-full min-w-0 border-0 bg-transparent p-0 text-right text-[11px] font-medium text-foreground focus:outline-none"
+                                    value={group.defaultRest ?? DEFAULT_GROUP_REST}
+                                    onChange={(e) =>
+                                      updateGroup(comp.id, group.id, {
+                                        defaultRest: Math.max(
+                                          1,
+                                          parseInt(e.target.value) || DEFAULT_GROUP_REST
+                                        ),
+                                      })
+                                    }
+                                    aria-label={`${group.name} rest`}
+                                  />
+                                </label>
+                              </div>
+                              {effectivePitches.length === 0 ? (
+                                <div className="text-[10px] text-muted-foreground">Add a pitch to assign groups.</div>
+                              ) : (
+                                <div className="flex flex-wrap gap-1">
+                                  {effectivePitches.map((pitch) => {
+                                    const isSelected = selectedPitchIds.includes(pitch.id);
+                                    return (
+                                      <button
+                                        key={pitch.id}
+                                        type="button"
+                                        className={cn(
+                                          'h-5 rounded border px-1.5 text-[10px] leading-none transition-colors',
+                                          isSelected
+                                            ? 'border-primary bg-primary/90 text-primary-foreground'
+                                            : 'border-sidebar-border bg-muted/70 text-muted-foreground hover:bg-muted'
+                                        )}
+                                        onClick={() =>
+                                          toggleGroupPitch(comp.id, group, pitch.id, !isSelected)
+                                        }
+                                      >
+                                        {pitch.name}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        </SidebarMenuSubItem>
-                      </SidebarMenuSub>
-                    </CollapsibleContent>
-                  </SidebarMenuItem>
-                </Collapsible>
-              );
-            })}
-          </SidebarMenu>
-        )}
-      </SidebarGroup>
+                          );
+                        })
+                      )}
+                    </div>
+                  </CollapsibleContent>
+                </SidebarMenuItem>
+              </Collapsible>
+            );
+          })}
+        </SidebarMenu>
+      )}
+    </SidebarGroup>
   );
 
   const schedulePortalTarget = document.getElementById('sidebar-schedule-portal');
@@ -1857,19 +1766,13 @@ const Schedule = () => {
 
                   if (index > 0 && index < pitchTimeline.length) {
                     const next = pitchTimeline[index];
-                    const nextStartMins =
-                      next.kind === 'fixture'
-                        ? minutesFromMidnight(next.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
-                        : minutesFromMidnight(next.item.startTime || DEFAULT_ASSIGN_TIME);
+                    const nextStartMins = getTimelineStartMinutes(next);
                     top = (nextStartMins - viewStartMins) * PIXELS_PER_MINUTE;
                   }
 
                   if (index === pitchTimeline.length && pitchTimeline.length > 0) {
                     const previous = pitchTimeline[index - 1];
-                    const previousStart =
-                      previous.kind === 'fixture'
-                        ? minutesFromMidnight(previous.item.fixture.startTime || DEFAULT_ASSIGN_TIME)
-                        : minutesFromMidnight(previous.item.startTime || DEFAULT_ASSIGN_TIME);
+                    const previousStart = getTimelineStartMinutes(previous);
                     top = (
                       (previousStart - viewStartMins) +
                       getTimelineBlockMinutes(previous)
@@ -2204,6 +2107,7 @@ const Schedule = () => {
                       if (top < 0 && top + height < 0) return null;
 
                       const isResizing = draggingBreakResize?.breakId === pitchBreak.id;
+                      const isCompactBreak = height < 44;
 
                       return (
                         <div
@@ -2211,58 +2115,74 @@ const Schedule = () => {
                           draggable
                           onDragStart={(event) => onDragStart(event, { kind: 'break', id: pitchBreak.id })}
                           onDragEnd={onDragEnd}
+                          onClick={() => {
+                            setSelectedBreakId(pitchBreak.id);
+                            setSelectedFixtureId(null);
+                          }}
                           className={cn(
                             'absolute w-[95%] left-[2.5%] rounded border border-slate-700 text-[10px] overflow-hidden shadow-sm cursor-move',
                             isResizing && 'ring-2 ring-amber-400',
-                            draggingItem?.kind === 'break' && draggingItem.id === pitchBreak.id && 'opacity-50'
+                            draggingItem?.kind === 'break' && draggingItem.id === pitchBreak.id && 'opacity-50',
+                            selectedBreakId === pitchBreak.id && 'ring-2 ring-emerald-400'
                           )}
                           style={{
                             top,
                             height,
-                            background: BREAK_PATTERN_DARK,
+                            background: BREAK_PATTERN_GRAY,
                           }}
                           title={`${pitchBreak.startTime} - ${pitchBreak.label}`}
                         >
                           <div className="relative h-full w-full px-1.5 py-1 text-slate-100">
                             <div className="flex items-center justify-between gap-1">
-                              <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-200/90">
-                                Break {pitchBreak.startTime}
+                              <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-100/90">
+                                {pitchBreak.startTime}
                               </div>
-                              <button
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleDeleteBreak(pitch.id, pitchBreak.id);
-                                }}
-                                className="h-4 w-4 flex items-center justify-center rounded bg-slate-900/45 hover:bg-red-700/60 text-slate-100"
-                                title="Delete break"
-                              >
-                                <X className="w-2.5 h-2.5" />
-                              </button>
+                              <div className="flex items-center gap-1">
+                                <div className="text-[9px] font-semibold text-slate-100/90">{duration}m</div>
+                                {!isCompactBreak && (
+                                <button
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleDeleteBreak(pitch.id, pitchBreak.id);
+                                  }}
+                                  className="h-4 w-4 flex items-center justify-center rounded bg-slate-800/35 hover:bg-red-700/60 text-slate-100"
+                                  title="Delete break"
+                                >
+                                  <X className="w-2.5 h-2.5" />
+                                </button>
+                                )}
+                              </div>
                             </div>
 
-                            <input
-                              value={pitchBreak.label}
-                              onChange={(event) => updateBreakLabel(pitchBreak.id, event.target.value)}
-                              onBlur={() => commitBreakLabel(pitchBreak.id)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                  (event.target as HTMLInputElement).blur();
-                                }
-                              }}
-                              className="mt-1 w-full h-5 rounded border border-slate-500/80 bg-slate-900/40 px-1 text-[10px] font-semibold text-slate-100 placeholder:text-slate-300 focus:outline-none focus:ring-1 focus:ring-amber-300"
-                              placeholder="Break label"
-                              aria-label="Break label"
-                            />
+                            {!isCompactBreak ? (
+                              <input
+                                value={pitchBreak.label}
+                                onChange={(event) => updateBreakLabel(pitchBreak.id, event.target.value)}
+                                onBlur={() => commitBreakLabel(pitchBreak.id)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    (event.target as HTMLInputElement).blur();
+                                  }
+                                }}
+                                className="mt-1 h-5 w-full rounded border border-slate-300/80 bg-slate-100/20 px-1 text-[10px] font-semibold text-white placeholder:text-slate-100/80 focus:outline-none focus:ring-1 focus:ring-amber-300"
+                                placeholder="Break label"
+                                aria-label="Break label"
+                              />
+                            ) : (
+                              <div className="mt-0.5 truncate text-[9px] text-slate-100/90">{pitchBreak.label}</div>
+                            )}
 
-                            <div className="mt-1 text-[9px] text-slate-200/90">{duration} min</div>
+                            {!isCompactBreak ? (
+                              <div className="mt-1 text-[9px] text-slate-100/90">{duration} min</div>
+                            ) : null}
 
                             <button
                               type="button"
                               onMouseDown={(event) => onBreakResizeMouseDown(event, pitchBreak)}
-                              className="absolute inset-x-0 bottom-0 h-2 cursor-row-resize bg-black/20 hover:bg-amber-500/40"
+                              className="absolute inset-x-0 bottom-0 h-2 cursor-row-resize bg-slate-700/25 hover:bg-amber-500/40"
                               title="Drag to resize break duration"
                             >
-                              <span className="mx-auto mt-[2px] block h-[2px] w-8 rounded bg-slate-100/70" />
+                              <span className="mx-auto mt-[2px] block h-[2px] w-8 rounded bg-slate-100/80" />
                             </button>
                           </div>
                         </div>
@@ -2286,6 +2206,54 @@ const Schedule = () => {
             onClose={() => setSelectedFixtureId(null)}
             pitchBreaks={pitchBreaks}
           />
+        </div>
+      )}
+
+      {selectedBreak && (
+        <div className="absolute right-3 top-14 z-50 w-64 rounded-md border bg-background/95 p-2 shadow-md backdrop-blur">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-xs font-semibold">Break {selectedBreak.startTime}</div>
+            <button
+              type="button"
+              className="h-5 w-5 rounded text-muted-foreground hover:bg-muted"
+              onClick={() => setSelectedBreakId(null)}
+              title="Close break editor"
+            >
+              <X className="mx-auto h-3 w-3" />
+            </button>
+          </div>
+
+          <label className="mb-2 block text-xs">
+            <div className="mb-1 text-muted-foreground">Label</div>
+            <Input
+              value={selectedBreak.label}
+              onChange={(event) => updateBreakLabel(selectedBreak.id, event.target.value)}
+              onBlur={() => commitBreakLabel(selectedBreak.id)}
+              className="h-7 text-xs"
+            />
+          </label>
+
+          <label className="mb-2 block text-xs">
+            <div className="mb-1 text-muted-foreground">Duration (minutes)</div>
+            <Input
+              type="number"
+              min={MIN_BREAK_DURATION}
+              step={BREAK_DURATION_STEP_MINUTES}
+              value={Math.max(MIN_BREAK_DURATION, selectedBreak.duration || DEFAULT_BREAK_DURATION)}
+              onChange={(event) => updateBreakDuration(selectedBreak.id, Number(event.target.value))}
+              onBlur={() => commitBreakDuration(selectedBreak.pitchId)}
+              className="h-7 text-xs"
+            />
+          </label>
+
+          <Button
+            variant="destructive"
+            size="sm"
+            className="h-7 w-full text-xs"
+            onClick={() => handleDeleteBreak(selectedBreak.pitchId, selectedBreak.id)}
+          >
+            Delete Break
+          </Button>
         </div>
       )}
     </div>
