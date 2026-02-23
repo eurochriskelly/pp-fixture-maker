@@ -7,7 +7,7 @@ const ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
 const ZIP_STORED_METHOD = 0;
 
 const ARCHIVE_ENTRY_NAME = 'tournament.json';
-const ARCHIVE_FORMAT = 'ppp-tournament-v1';
+const ARCHIVE_FORMAT = 'ppp-tournament-v2';
 
 export interface PppArchivePayload {
   format: typeof ARCHIVE_FORMAT;
