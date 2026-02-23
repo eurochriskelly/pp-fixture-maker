@@ -18,7 +18,6 @@ interface MatchDisplay {
 }
 
 const DEFAULT_DURATION_MINUTES = 20;
-const PITCH_BREAKS_STORAGE_KEY = 'tournament_pitch_breaks_v1';
 
 const toMinutes = (value?: string): number | null => {
   if (!value) return null;
@@ -95,7 +94,7 @@ const StageHexagon: React.FC<{ fixture: Fixture; competition: Competition }> = (
 };
 
 const ByPitch: React.FC = () => {
-  const { competitions, pitches, locations } = useTournament();
+  const { competitions, pitches, locations, pitchBreaks } = useTournament();
   const teamNameById = React.useMemo(() => {
     const map = new Map<string, string>();
     competitions.forEach((competition) => {
@@ -105,30 +104,6 @@ const ByPitch: React.FC = () => {
     });
     return map;
   }, [competitions]);
-  const pitchBreaks = React.useMemo<PitchBreakItem[]>(() => {
-    try {
-      const raw = localStorage.getItem(PITCH_BREAKS_STORAGE_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return parsed
-        .filter((item) =>
-          item &&
-          typeof item.id === 'string' &&
-          typeof item.pitchId === 'string' &&
-          typeof item.startTime === 'string'
-        )
-        .map((item) => ({
-          id: item.id,
-          pitchId: item.pitchId,
-          startTime: item.startTime,
-          duration: Math.max(1, Number(item.duration) || DEFAULT_DURATION_MINUTES),
-          label: (typeof item.label === 'string' && item.label.trim()) || 'Break',
-        }));
-    } catch {
-      return [];
-    }
-  }, []);
 
   const locationById = React.useMemo(
     () => new Map(locations.map((location) => [location.id, location])),

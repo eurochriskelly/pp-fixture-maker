@@ -46,7 +46,6 @@ const DRAG_SNAP_MINUTES = 5;
 const DEFAULT_BREAK_DURATION = 20;
 const MIN_BREAK_DURATION = 5;
 const BREAK_DURATION_STEP_MINUTES = 1;
-const PITCH_BREAKS_STORAGE_KEY = 'tournament_pitch_breaks_v1';
 const SCHEDULE_VERTICAL_SCALE_STORAGE_KEY = 'tournament_schedule_vertical_scale_v1';
 const BREAK_PATTERN_GRAY = 'repeating-linear-gradient(45deg, #6b7280, #6b7280 4px, #4b5563 4px, #4b5563 8px)';
 const DRAWER_HEIGHT_PX = 280; // Fixed height for the details drawer
@@ -100,6 +99,7 @@ const Schedule = () => {
     competitions,
     pitches,
     locations,
+    pitchBreaks,
     addPitch,
     updatePitch,
     deletePitch,
@@ -109,6 +109,9 @@ const Schedule = () => {
     resetAllSchedules,
     batchUpdateFixtures,
     updateGroup,
+    addPitchBreak,
+    updatePitchBreak,
+    deletePitchBreak,
   } = useTournament();
 
   const [pitchDrafts, setPitchDrafts] = React.useState<Record<string, PitchDraft>>({});
@@ -122,30 +125,6 @@ const Schedule = () => {
   });
   const pixelsPerMinute = BASE_PIXELS_PER_MINUTE * verticalScale;
   const textScale = 1 + (verticalScale - 1) * 0.25;
-  const [pitchBreaks, setPitchBreaks] = React.useState<PitchBreakItem[]>(() => {
-    try {
-      const saved = localStorage.getItem(PITCH_BREAKS_STORAGE_KEY);
-      if (!saved) return [];
-      const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed)) return [];
-      return parsed
-        .filter((item) =>
-          item &&
-          typeof item.id === 'string' &&
-          typeof item.pitchId === 'string' &&
-          typeof item.startTime === 'string'
-        )
-        .map((item) => ({
-          id: item.id,
-          pitchId: item.pitchId,
-          startTime: item.startTime,
-          duration: Math.max(MIN_BREAK_DURATION, Number(item.duration) || DEFAULT_BREAK_DURATION),
-          label: (typeof item.label === 'string' && item.label.trim()) || 'Break',
-        }));
-    } catch {
-      return [];
-    }
-  });
   const gridScrollRef = React.useRef<HTMLDivElement | null>(null);
   const [draggingPitchBoundary, setDraggingPitchBoundary] = React.useState<PitchBoundaryDragState | null>(null);
   const [draggingBreakResize, setDraggingBreakResize] = React.useState<BreakResizeDragState | null>(null);
@@ -187,9 +166,7 @@ const Schedule = () => {
     };
   }, []);
 
-  React.useEffect(() => {
-    localStorage.setItem(PITCH_BREAKS_STORAGE_KEY, JSON.stringify(pitchBreaks));
-  }, [pitchBreaks]);
+
 
   React.useEffect(() => {
     localStorage.setItem(SCHEDULE_VERTICAL_SCALE_STORAGE_KEY, String(verticalScale));
@@ -209,10 +186,7 @@ const Schedule = () => {
     };
   }, [clearDragState]);
 
-  React.useEffect(() => {
-    const activePitchIds = new Set(pitches.map((pitch) => pitch.id));
-    setPitchBreaks((current) => current.filter((pitchBreak) => activePitchIds.has(pitchBreak.pitchId)));
-  }, [pitches]);
+
 
   React.useEffect(() => {
     setPitchDrafts((current) => {
@@ -462,7 +436,6 @@ const Schedule = () => {
     if (!confirmed) return;
 
     deletePitch(pitchId);
-    setPitchBreaks((current) => current.filter((pitchBreak) => pitchBreak.pitchId !== pitchId));
     setPitchDrafts((current) => {
       const next = { ...current };
       delete next[pitchId];
@@ -900,14 +873,11 @@ const Schedule = () => {
     }
 
     if (breakUpdates.length > 0) {
-      const breakUpdateMap = new Map(breakUpdates.map((update) => [update.breakId, update.updates]));
-      setPitchBreaks((current) =>
-        current.map((pitchBreak) =>
-          breakUpdateMap.has(pitchBreak.id) ? { ...pitchBreak, ...breakUpdateMap.get(pitchBreak.id) } : pitchBreak
-        )
-      );
+      breakUpdates.forEach((update) => {
+        updatePitchBreak(update.breakId, update.updates);
+      });
     }
-  }, [batchUpdateFixtures, competitions, groupTimingSnapshot, pitchBreaks]);
+  }, [batchUpdateFixtures, competitions, groupTimingSnapshot, pitchBreaks, updatePitchBreak]);
 
   const listPitchFixtures = (pitchId: string, updateMap?: Map<string, Partial<Fixture>>): PitchFixtureItem[] => {
     return competitions
@@ -1094,12 +1064,15 @@ const Schedule = () => {
       );
     }
 
-    if (options?.baseBreaks || updates.breakUpdates.length > 0) {
-      setPitchBreaks(nextBreaks);
+    // Apply break updates individually
+    if (updates.breakUpdates.length > 0) {
+      updates.breakUpdates.forEach((update) => {
+        updatePitchBreak(update.breakId, update.updates);
+      });
     }
 
     if (updates.fixtureUpdates.length > 0) {
-      batchUpdateFixtures(updates.fixtureUpdates, true, nextBreaks);
+      batchUpdateFixtures(updates.fixtureUpdates, true, pitchBreaks);
     }
   };
 
@@ -1365,28 +1338,22 @@ const Schedule = () => {
   };
 
   const updateBreakLabel = (breakId: string, label: string) => {
-    setPitchBreaks((current) =>
-      current.map((pitchBreak) => (pitchBreak.id === breakId ? { ...pitchBreak, label } : pitchBreak))
-    );
+    updatePitchBreak(breakId, { label });
   };
 
   const updateBreakDuration = (breakId: string, nextDuration: number) => {
     const safeDuration = Math.max(MIN_BREAK_DURATION, nextDuration || MIN_BREAK_DURATION);
-    setPitchBreaks((current) =>
-      current.map((pitchBreak) =>
-        pitchBreak.id === breakId ? { ...pitchBreak, duration: safeDuration } : pitchBreak
-      )
-    );
+    updatePitchBreak(breakId, { duration: safeDuration });
   };
 
   const commitBreakLabel = (breakId: string) => {
-    setPitchBreaks((current) =>
-      current.map((pitchBreak) => {
-        if (pitchBreak.id !== breakId) return pitchBreak;
-        const nextLabel = pitchBreak.label.trim() || 'Break';
-        return nextLabel === pitchBreak.label ? pitchBreak : { ...pitchBreak, label: nextLabel };
-      })
-    );
+    const pitchBreak = pitchBreaks.find(pb => pb.id === breakId);
+    if (pitchBreak) {
+      const nextLabel = pitchBreak.label.trim() || 'Break';
+      if (nextLabel !== pitchBreak.label) {
+        updatePitchBreak(breakId, { label: nextLabel });
+      }
+    }
   };
 
   const commitBreakDuration = (pitchId: string) => {
@@ -1423,13 +1390,10 @@ const Schedule = () => {
         draggingBreakResize.initialDuration + deltaMinutesSnapped
       );
 
-      setPitchBreaks((current) =>
-        current.map((pitchBreak) =>
-          pitchBreak.id === draggingBreakResize.breakId && pitchBreak.duration !== nextDuration
-            ? { ...pitchBreak, duration: nextDuration }
-            : pitchBreak
-        )
-      );
+      const pitchBreak = pitchBreaks.find(pb => pb.id === draggingBreakResize.breakId);
+      if (pitchBreak && pitchBreak.duration !== nextDuration) {
+        updatePitchBreak(draggingBreakResize.breakId, { duration: nextDuration });
+      }
     };
 
     const onMouseUp = () => {
