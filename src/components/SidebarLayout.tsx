@@ -29,7 +29,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useTournament } from "@/context/TournamentContext";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
-import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList, Shield, Grid3x3, Users, Info } from "lucide-react";
+import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList, Shield, Grid3x3, Users, Info, Globe } from "lucide-react";
 import { CompetitionBadge } from "@/components/CompetitionBadge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -42,13 +42,15 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { PublishDialog } from "@/components/PublishDialog";
 
 export default function SidebarLayout() {
-  const { competitions, addCompetition, currentTournament } = useTournament();
+  const { competitions, addCompetition, currentTournament, updateTournament } = useTournament();
   const navigate = useNavigate();
   const location = useLocation();
   const [newCompName, setNewCompName] = React.useState("");
   const [isDialogOpen, setIsDialogOpen] = React.useState(false);
+  const [isPublishDialogOpen, setIsPublishDialogOpen] = React.useState(false);
 
   const handleCreate = () => {
     if (newCompName.trim()) {
@@ -198,6 +200,22 @@ export default function SidebarLayout() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
           </SidebarMenu>
+          
+          {/* Publish Button - Always visible above menu items */}
+          {currentTournament && (
+            <div className="mt-4 px-2">
+              <Button
+                className="w-full"
+                size="sm"
+                onClick={() => setIsPublishDialogOpen(true)}
+              >
+                <Globe className="w-4 h-4 mr-2" />
+                {currentTournament.published
+                  ? `Publish v${currentTournament.published.version + 1}`
+                  : "Publish"}
+              </Button>
+            </div>
+          )}
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
@@ -259,42 +277,14 @@ export default function SidebarLayout() {
               </Collapsible>
 
               {/* Clubs */}
-              <Collapsible asChild className="group/collapsible" defaultOpen={location.pathname === "/clubs/participants" || location.pathname === "/clubs/map"}>
-                <SidebarMenuItem>
-                  <div className="flex items-center">
-                    <SidebarMenuButton asChild isActive={location.pathname.startsWith("/clubs")} className="flex-1">
-                      <Link to="/clubs/participants">
-                        <Shield />
-                        <span>Clubs</span>
-                      </Link>
-                    </SidebarMenuButton>
-                    <CollapsibleTrigger asChild>
-                      <SidebarMenuButton className="w-8 p-0 justify-center flex-shrink-0">
-                        <ChevronRight className="transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                        <span className="sr-only">Toggle Clubs menu</span>
-                      </SidebarMenuButton>
-                    </CollapsibleTrigger>
-                  </div>
-                  <CollapsibleContent>
-                    <SidebarMenuSub>
-                      <SidebarMenuSubItem>
-                        <SidebarMenuSubButton asChild isActive={location.pathname === "/clubs/participants"}>
-                          <Link to="/clubs/participants">
-                            <span>Participants</span>
-                          </Link>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                      <SidebarMenuSubItem>
-                        <SidebarMenuSubButton asChild isActive={location.pathname === "/clubs/map"}>
-                          <Link to="/clubs/map">
-                            <span>Map</span>
-                          </Link>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    </SidebarMenuSub>
-                  </CollapsibleContent>
-                </SidebarMenuItem>
-              </Collapsible>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location.pathname.startsWith("/clubs")}>
+                  <Link to="/clubs">
+                    <Shield />
+                    <span>Clubs</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
 
               {/* Competitions */}
               <Collapsible 
@@ -511,6 +501,16 @@ export default function SidebarLayout() {
             Pitch Perfect
           </div>
         </SidebarFooter>
+
+        {/* Publish Dialog */}
+        {currentTournament && (
+          <PublishDialog
+            open={isPublishDialogOpen}
+            onOpenChange={setIsPublishDialogOpen}
+            tournament={currentTournament}
+            onPublish={(updates) => updateTournament(currentTournament.id, updates)}
+          />
+        )}
       </Sidebar>
       <SidebarInset>
         <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
