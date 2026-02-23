@@ -13,6 +13,7 @@ import PlayTime from "./pages/PlayTime";
 import ClubContributions from "./pages/ClubContributions";
 import Officials from "./pages/Officials";
 import NotFound from "./pages/NotFound";
+import Overview from "./pages/Overview";
 import { TournamentProvider } from "@/context/TournamentContext";
 import SidebarLayout from "./components/SidebarLayout";
 import CompetitionGroups from "./pages/competition/Groups";
@@ -31,6 +32,7 @@ const App = () => (
           <Routes>
             <Route element={<SidebarLayout />}>
               <Route path="/" element={<Index />} />
+              <Route path="/overview" element={<Overview />} />
               <Route path="/tournaments" element={<Tournaments />} />
               <Route path="/scheduler" element={<Navigate to="/scheduler/timeline" replace />} />
               <Route path="/scheduler/timeline" element={<Schedule />} />

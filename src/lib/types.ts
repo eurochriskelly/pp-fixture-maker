@@ -89,6 +89,19 @@ export interface Tournament {
   competitions: Competition[];
   pitches: Pitch[];
   clubs: Club[];
+  // Overview fields
+  region?: string;
+  startDate?: string;
+  endDate?: string;
+  location?: string;
+  latitude?: string;
+  longitude?: string;
+  winPoints?: number;
+  drawPoints?: number;
+  losePoints?: number;
+  organizerCode?: string;
+  coordinatorCode?: string;
+  refereeCode?: string;
 }
 
 export interface TournamentData {

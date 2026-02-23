@@ -29,7 +29,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useTournament } from "@/context/TournamentContext";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
-import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList, Shield, Grid3x3, Users } from "lucide-react";
+import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList, Shield, Grid3x3, Users, Info } from "lucide-react";
 import { CompetitionBadge } from "@/components/CompetitionBadge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -203,43 +203,15 @@ export default function SidebarLayout() {
           <SidebarGroup>
             <SidebarGroupLabel>Platform</SidebarGroupLabel>
             <SidebarMenu>
-              {/* Clubs */}
-              <Collapsible asChild className="group/collapsible" defaultOpen={location.pathname === "/clubs/participants" || location.pathname === "/clubs/map"}>
-                <SidebarMenuItem>
-                  <div className="flex items-center">
-                    <SidebarMenuButton asChild isActive={location.pathname.startsWith("/clubs")} className="flex-1">
-                      <Link to="/clubs/participants">
-                        <Shield />
-                        <span>Clubs</span>
-                      </Link>
-                    </SidebarMenuButton>
-                    <CollapsibleTrigger asChild>
-                      <SidebarMenuButton className="w-8 p-0 justify-center flex-shrink-0">
-                        <ChevronRight className="transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                        <span className="sr-only">Toggle Clubs menu</span>
-                      </SidebarMenuButton>
-                    </CollapsibleTrigger>
-                  </div>
-                  <CollapsibleContent>
-                    <SidebarMenuSub>
-                      <SidebarMenuSubItem>
-                        <SidebarMenuSubButton asChild isActive={location.pathname === "/clubs/participants"}>
-                          <Link to="/clubs/participants">
-                            <span>Participants</span>
-                          </Link>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                      <SidebarMenuSubItem>
-                        <SidebarMenuSubButton asChild isActive={location.pathname === "/clubs/map"}>
-                          <Link to="/clubs/map">
-                            <span>Map</span>
-                          </Link>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    </SidebarMenuSub>
-                  </CollapsibleContent>
-                </SidebarMenuItem>
-              </Collapsible>
+              {/* Overview */}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location.pathname === "/overview"}>
+                  <Link to="/overview">
+                    <Info />
+                    <span>Overview</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
 
               {/* Officials */}
               <Collapsible asChild className="group/collapsible" defaultOpen={location.pathname.startsWith("/officials")}>
@@ -278,6 +250,44 @@ export default function SidebarLayout() {
                         <SidebarMenuSubButton asChild isActive={location.pathname === "/officials/coordinators"}>
                           <Link to="/officials/coordinators">
                             <span>Coordinators</span>
+                          </Link>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </SidebarMenuItem>
+              </Collapsible>
+
+              {/* Clubs */}
+              <Collapsible asChild className="group/collapsible" defaultOpen={location.pathname === "/clubs/participants" || location.pathname === "/clubs/map"}>
+                <SidebarMenuItem>
+                  <div className="flex items-center">
+                    <SidebarMenuButton asChild isActive={location.pathname.startsWith("/clubs")} className="flex-1">
+                      <Link to="/clubs/participants">
+                        <Shield />
+                        <span>Clubs</span>
+                      </Link>
+                    </SidebarMenuButton>
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton className="w-8 p-0 justify-center flex-shrink-0">
+                        <ChevronRight className="transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                        <span className="sr-only">Toggle Clubs menu</span>
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
+                  </div>
+                  <CollapsibleContent>
+                    <SidebarMenuSub>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton asChild isActive={location.pathname === "/clubs/participants"}>
+                          <Link to="/clubs/participants">
+                            <span>Participants</span>
+                          </Link>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton asChild isActive={location.pathname === "/clubs/map"}>
+                          <Link to="/clubs/map">
+                            <span>Map</span>
                           </Link>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>
