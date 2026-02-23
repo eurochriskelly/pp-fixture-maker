@@ -496,7 +496,7 @@ const ByTeam: React.FC = () => {
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-6 auto-rows-max">
-          {clubSchedules.map((schedule) => {
+          {clubSchedules.map((schedule, index) => {
             const { groupFixtureCount, eliminationFixtureCount } = schedule.teams.reduce(
               (counts, teamSchedule) => {
                 teamSchedule.fixtures.forEach(({ fixture }) => {
@@ -512,7 +512,7 @@ const ByTeam: React.FC = () => {
             );
 
             return (
-              <Card key={schedule.club.id} className="flex flex-col club-print-section">
+              <Card key={schedule.club.id} className={`flex flex-col ${index > 0 ? 'club-print-section' : ''}`}>
                 <CardHeader className="space-y-2 pb-3">
                   <CardTitle className="flex items-center gap-2 flex-wrap">
                     {schedule.club.name}
