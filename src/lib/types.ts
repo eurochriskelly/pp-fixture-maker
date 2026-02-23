@@ -121,6 +121,7 @@ export interface Tournament {
   pitches: Pitch[];
   clubs: Club[];
   locations: Location[];
+  pitchBreaks: PitchBreakItem[];
   // Overview fields
   region?: string;
   startDate?: string;
