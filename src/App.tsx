@@ -19,7 +19,8 @@ import LocationsReport from "./pages/LocationsReport";
 import NotFound from "./pages/NotFound";
 import Overview from "./pages/Overview";
 import { TournamentProvider } from "@/context/TournamentContext";
-import SidebarLayout from "./components/SidebarLayout";
+import { AuthProvider } from "@/context/AuthContext";
+import AppLayout from "./components/AppLayout";
 import CompetitionGroups from "./pages/competition/Groups";
 import CompetitionFixtures from "./pages/competition/Fixtures";
 import CompetitionSettings from "./pages/competition/Settings";
@@ -29,12 +30,13 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <TournamentProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route element={<SidebarLayout />}>
+      <AuthProvider>
+        <TournamentProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route element={<AppLayout />}>
               <Route path="/" element={<Index />} />
               <Route path="/overview" element={<Overview />} />
               <Route path="/tournaments" element={<Tournaments />} />
@@ -64,8 +66,9 @@ const App = () => (
           </Routes>
         </BrowserRouter>
       </TournamentProvider>
-    </TooltipProvider>
-  </QueryClientProvider>
+    </AuthProvider>
+  </TooltipProvider>
+</QueryClientProvider>
 );
 
 export default App;

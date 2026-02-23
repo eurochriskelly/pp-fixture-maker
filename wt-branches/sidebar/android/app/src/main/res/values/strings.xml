@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">pp-fixture-maker</string>
+    <string name="title_activity_main">pp-fixture-maker</string>
+    <string name="package_name">com.example.ppfixturemaker</string>
+    <string name="custom_url_scheme">com.example.ppfixturemaker</string>
+</resources>
