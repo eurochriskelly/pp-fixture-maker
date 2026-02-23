@@ -21,9 +21,9 @@ archive.ppp (ZIP)
 
 ```typescript
 interface PppArchivePayload {
-  format: 'ppp-tournament-v1';   // Format identifier
+  format: 'ppp-tournament-v2';   // Format identifier
   exportedAt: string;             // ISO timestamp of export
-  tournament: Tournament;         // Complete tournament object
+  tournament: Tournament;         // Complete tournament object with pitchBreaks
 }
 ```
 
@@ -31,18 +31,18 @@ interface PppArchivePayload {
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `format` | `"ppp-tournament-v1"` | Format version identifier |
+| `format` | `"ppp-tournament-v2"` | Format version identifier (v2 includes pitch breaks) |
 | `exportedAt` | `string` | ISO 8601 timestamp when exported |
-| `tournament` | `Tournament` | Complete tournament object with all data |
+| `tournament` | `Tournament` | Complete tournament object with all data including `pitchBreaks` |
 
 ## Export Function
 
 ```typescript
 export function createPppArchive(tournament: Tournament): Blob {
   const payload: PppArchivePayload = {
-    format: 'ppp-tournament-v1',
+    format: 'ppp-tournament-v2',
     exportedAt: new Date().toISOString(),
-    tournament,
+    tournament, // Includes pitchBreaks array
   };
   
   const json = JSON.stringify(payload, null, 2);
@@ -60,7 +60,7 @@ export async function parsePppArchive(file: File): Promise<PppArchivePayload> {
   const payload: PppArchivePayload = JSON.parse(json);
   
   // Validation
-  if (payload.format !== 'ppp-tournament-v1') {
+  if (payload.format !== 'ppp-tournament-v2') {
     throw new Error('Unsupported PPP format version');
   }
   
@@ -88,7 +88,8 @@ function safeFileName(name: string): string {
 
 | Version | Status | Notes |
 |---------|--------|-------|
-| `ppp-tournament-v1` | Current | Initial format |
+| `ppp-tournament-v2` | Current | Includes pitchBreaks array in Tournament |
+| `ppp-tournament-v1` | Deprecated | Initial format (breaks stored separately) |
 
 ## What's Included
 
@@ -96,16 +97,15 @@ The archive contains the complete `Tournament` object:
 - All competitions with teams, groups, and fixtures
 - All clubs
 - All pitches
+- All pitch breaks (lunch, setup, etc.)
 - Tournament metadata (dates, location, points, access codes)
 
 ## What's NOT Included
 
-Currently NOT included in PPP archives:
-- `PitchBreakItem` data (stored separately in localStorage)
+The following are NOT included in PPP archives:
 - Application settings
 - User preferences
-
-Future versions may include these.
+- UI state (sidebar open/closed, current tournament selection)
 
 ## Import Process
 

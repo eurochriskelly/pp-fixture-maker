@@ -17,6 +17,8 @@ interface Tournament {
   competitions: Competition[];   // Array of competitions
   pitches: Pitch[];              // Array of available pitches
   clubs: Club[];                 // Array of clubs
+  locations: Location[];         // Array of locations
+  pitchBreaks: PitchBreakItem[]; // Array of pitch breaks (lunch, setup, etc.)
   
   // Overview/metadata fields
   region?: string;               // Geographic region
@@ -31,6 +33,14 @@ interface Tournament {
   organizerCode?: string;        // Access code for organizer
   coordinatorCode?: string;      // Access code for coordinator
   refereeCode?: string;          // Access code for referee
+  
+  // Publication tracking
+  published?: {
+    at: string;                  // ISO timestamp when published
+    version: number;             // Publication version
+    remoteId?: number;           // Remote ID if published
+    eventUuid?: string;          // Event UUID if published
+  };
 }
 ```
 
@@ -46,6 +56,8 @@ interface Tournament {
 | `competitions` | `Competition[]` | Yes | All competitions in this tournament |
 | `pitches` | `Pitch[]` | Yes | All available playing fields |
 | `clubs` | `Club[]` | Yes | All participating clubs |
+| `locations` | `Location[]` | Yes | All venue locations |
+| `pitchBreaks` | `PitchBreakItem[]` | Yes | Scheduled breaks (lunch, setup, etc.) |
 | `region` | `string` | No | Geographic region (e.g., "North", "South") |
 | `startDate` | `string` | No | Tournament start date (ISO date) |
 | `endDate` | `string` | No | Tournament end date (ISO date) |
@@ -58,12 +70,20 @@ interface Tournament {
 | `organizerCode` | `string` | No | Access code for organizer role |
 | `coordinatorCode` | `string` | No | Access code for coordinator role |
 | `refereeCode` | `string` | No | Access code for referee role |
+| `published` | `object` | No | Publication metadata if published |
 
 ## Relationships
 
 - Contains multiple `Competition` objects
 - References `Club` and `Pitch` entities at tournament level
+- Contains `PitchBreakItem` objects for scheduled breaks
 - All child arrays are serialized together in the Tournament object
+
+## Archive Format
+
+Tournaments are exported in the PPP archive format (`ppp-tournament-v2`). The `pitchBreaks` array is included in the archive, ensuring breaks are preserved during export/import operations.
+
+See: [ppp-archive.md](./ppp-archive.md)
 
 ## Storage
 

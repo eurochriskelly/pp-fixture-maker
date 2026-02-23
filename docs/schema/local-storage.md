@@ -10,7 +10,6 @@ This document describes all localStorage keys used by the tournament application
 |-----|-----------|---------|----------|
 | `tournament_maker_tournaments` | `Tournament[]` | Array of all tournaments | `TournamentContext.tsx` |
 | `tournament_maker_current_id` | `string` | ID of currently selected tournament | `TournamentContext.tsx` |
-| `tournament_pitch_breaks_v1` | `PitchBreakItem[]` | Pitch break schedules | `TournamentContext.tsx` |
 | `club_search_api_key` | `string` | API key for club search feature | `ClubSearchContext.tsx` |
 
 ## Primary Storage Pattern
@@ -46,28 +45,13 @@ localStorage.setItem(
 const currentId = localStorage.getItem('tournament_maker_current_id');
 ```
 
-### Pitch Breaks
-
-Pitch breaks are stored separately from tournaments:
-
-```typescript
-// Save
-localStorage.setItem(
-  'tournament_pitch_breaks_v1', 
-  JSON.stringify(pitchBreaks)
-);
-
-// Load
-const stored = localStorage.getItem('tournament_pitch_breaks_v1');
-const pitchBreaks: PitchBreakItem[] = stored ? JSON.parse(stored) : [];
-```
-
 ## Legacy Migration Keys
 
 These keys were used in earlier versions and are migrated on load:
 
 | Key | Migrated To | Status |
 |-----|-------------|--------|
+| `tournament_pitch_breaks_v1` | `tournament.pitchBreaks` (inside Tournament) | Migrated to v2 (2025) |
 | `tournament_competitions` | `tournament_maker_tournaments` | Deprecated |
 | `tournament_pitches` | `tournament_maker_tournaments` | Deprecated |
 | `tournament_clubs` | `tournament_maker_tournaments` | Deprecated |
@@ -88,6 +72,11 @@ The application maintains data integrity by:
 2. Updating `updatedAt` timestamp on tournament changes
 3. Validating data structure on load
 4. Gracefully handling corrupted/missing data
+
+### Migration Markers
+
+The application uses migration markers to track data migrations:
+- `ppp_breaks_migrated_v2`: Set when pitch breaks are migrated from legacy `tournament_pitch_breaks_v1` key into Tournament objects
 
 ## Storage Events
 
@@ -118,7 +107,6 @@ To clear all tournament data:
 ```javascript
 localStorage.removeItem('tournament_maker_tournaments');
 localStorage.removeItem('tournament_maker_current_id');
-localStorage.removeItem('tournament_pitch_breaks_v1');
 ```
 
 ## Error Handling

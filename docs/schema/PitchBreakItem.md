@@ -3,7 +3,7 @@
 **Source**: `src/lib/types.ts`
 **Related**: [Pitch.md](./Pitch.md), [local-storage.md](./local-storage.md)
 
-A scheduled break or closure for a specific pitch. These are stored separately from the Tournament object.
+A scheduled break or closure for a specific pitch. Stored as part of the Tournament object.
 
 ## Interface
 
@@ -43,19 +43,20 @@ Typical break labels:
 
 ## Storage
 
-**Important**: Pitch breaks are stored separately from the Tournament object in localStorage.
+**Important**: Pitch breaks are stored as part of the `Tournament` object in the `pitchBreaks` array.
 
 ```typescript
-// Storage key
-localStorage.setItem('tournament_pitch_breaks_v1', JSON.stringify(pitchBreaks));
+// Part of Tournament interface
+interface Tournament {
+  // ... other fields
+  pitchBreaks: PitchBreakItem[];
+}
 
-// Retrieval
-const pitchBreaks: PitchBreakItem[] = JSON.parse(
-  localStorage.getItem('tournament_pitch_breaks_v1') || '[]'
-);
+// Access via TournamentContext
+const { pitchBreaks, addPitchBreak, updatePitchBreak, deletePitchBreak } = useTournament();
 ```
 
-This design keeps pitch scheduling data separate from tournament structure data, allowing independent updates.
+This design ensures breaks are tournament-specific and are automatically included in exports.
 
 ## Scheduling Impact
 
@@ -68,14 +69,24 @@ When scheduling fixtures:
 ## Relationships
 
 - References `Pitch` via `pitchId`
-- Stored separately from `Tournament` in localStorage
+- Stored inside `Tournament.pitchBreaks` array
+- Managed via `TournamentContext` (addPitchBreak, updatePitchBreak, deletePitchBreak)
 - Used by scheduling logic in `TournamentContext`
 
 ## Export/Import
 
-When exporting a tournament to `.ppp` archive:
-- Pitch breaks are NOT included in the Tournament object
-- They must be handled separately if needed
-- Consider future enhancement to include breaks in archive
+When exporting a tournament to `.ppp` archive (format `ppp-tournament-v2`):
+- Pitch breaks ARE included in the Tournament object via `pitchBreaks` array
+- Breaks are automatically preserved during export and import
+- Each tournament maintains its own separate set of breaks
 
-See: [local-storage.md](./local-storage.md), [ppp-archive.md](./ppp-archive.md)
+## Migration History
+
+**v2 Update (2025)**: Pitch breaks were moved from separate localStorage key (`tournament_pitch_breaks_v1`) into the `Tournament.pitchBreaks` array. This change:
+- Makes breaks tournament-specific
+- Ensures breaks are included in PPP archive exports
+- Improves data integrity and simplifies backup/restore
+
+Legacy breaks are automatically migrated on first load after the update.
+
+See: [Tournament.md](./Tournament.md), [ppp-archive.md](./ppp-archive.md), [local-storage.md](./local-storage.md)
