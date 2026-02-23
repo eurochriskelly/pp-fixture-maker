@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTournament } from '@/context/TournamentContext';
 import { Club } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { MapPin, Phone, Mail, User, Plus, Pencil, Trash2, Shield, Wand2, Loader2, Key } from 'lucide-react';
+import { MapPin, Phone, Mail, User, Plus, Pencil, Trash2, Shield, Wand2, Loader2, Key, Clipboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { searchClubInfo, processLogo } from '@/lib/clubSearch';
 import { useToast } from '@/hooks/use-toast';
@@ -97,6 +97,73 @@ const ClubDialog = ({
     const [secondaryColor, setSecondaryColor] = useState(club?.secondaryColor || '#ffffff');
     const [lat, setLat] = useState(club?.coordinates?.lat?.toString() || '');
     const [lng, setLng] = useState(club?.coordinates?.lng?.toString() || '');
+    const [isPastingCrest, setIsPastingCrest] = useState(false);
+    const [crestPasteError, setCrestPasteError] = useState<string | null>(null);
+
+    const applyClipboardBlobAsCrest = useCallback((blob: Blob) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = reader.result;
+            if (typeof result === 'string') {
+                setCrest(result);
+                setCrestPasteError(null);
+            } else {
+                setCrestPasteError('Unable to read image from clipboard.');
+            }
+        };
+        reader.onerror = () => setCrestPasteError('Unable to read image from clipboard.');
+        reader.readAsDataURL(blob);
+    }, []);
+
+    const pasteCrestFromClipboard = useCallback(async () => {
+        setIsPastingCrest(true);
+        setCrestPasteError(null);
+
+        try {
+            if (!navigator.clipboard?.read) {
+                setCrestPasteError('Clipboard image access is not supported in this browser.');
+                return;
+            }
+
+            const clipboardItems = await navigator.clipboard.read();
+            for (const item of clipboardItems) {
+                const imageType = item.types.find((type) => type.startsWith('image/'));
+                if (!imageType) continue;
+
+                const imageBlob = await item.getType(imageType);
+                applyClipboardBlobAsCrest(imageBlob);
+                return;
+            }
+
+            setCrestPasteError('No image found in clipboard.');
+        } catch {
+            setCrestPasteError('Clipboard access was blocked. Try Cmd/Ctrl+V while this dialog is open.');
+        } finally {
+            setIsPastingCrest(false);
+        }
+    }, [applyClipboardBlobAsCrest]);
+
+    useEffect(() => {
+        if (!open) return;
+
+        const handlePaste = (event: ClipboardEvent) => {
+            const clipboardItems = event.clipboardData?.items;
+            if (!clipboardItems) return;
+
+            for (const item of clipboardItems) {
+                if (!item.type.startsWith('image/')) continue;
+                const imageFile = item.getAsFile();
+                if (!imageFile) continue;
+
+                event.preventDefault();
+                applyClipboardBlobAsCrest(imageFile);
+                return;
+            }
+        };
+
+        window.addEventListener('paste', handlePaste);
+        return () => window.removeEventListener('paste', handlePaste);
+    }, [open, applyClipboardBlobAsCrest]);
 
     const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
@@ -141,21 +208,24 @@ const ClubDialog = ({
                 try {
                     const processedCrest = await processLogo(result.logoUrl);
                     setCrest(processedCrest);
+                    setCrestPasteError(null);
                 } catch (e) {
                     console.error("Logo processing failed, using raw URL", e);
                     setCrest(result.logoUrl);
+                    setCrestPasteError(null);
                 }
             }
 
             toast({ title: "Club details found!", description: "Review and save changes." });
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error(error);
-            if (error.message?.includes('401')) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            if (message.includes('401')) {
                 localStorage.removeItem('club_search_api_key');
                 toast({ title: "Invalid API Key", description: "Please enter a valid key.", variant: "destructive" });
                 setApiKeyDialogOpen(true);
             } else {
-                toast({ title: "Search failed", description: error.message, variant: "destructive" });
+                toast({ title: "Search failed", description: message, variant: "destructive" });
             }
         } finally {
             setIsSearching(false);
@@ -185,6 +255,8 @@ const ClubDialog = ({
             crest
         });
         setOpen(false);
+        setCrestPasteError(null);
+        setIsPastingCrest(false);
         if (!club) {
             // Reset form if adding
             setName('');
@@ -247,6 +319,35 @@ const ClubDialog = ({
                                 </div>
                             )}
                             <div className="flex-1 space-y-4">
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={pasteCrestFromClipboard}
+                                        disabled={isPastingCrest}
+                                        title="Paste club logo from clipboard"
+                                    >
+                                        <Clipboard className="h-4 w-4 mr-2" />
+                                        {isPastingCrest ? 'Pasting...' : 'Paste from clipboard'}
+                                    </Button>
+                                    {crest && (
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => {
+                                                setCrest('');
+                                                setCrestPasteError(null);
+                                            }}
+                                        >
+                                            Remove crest
+                                        </Button>
+                                    )}
+                                </div>
+                                {crestPasteError && (
+                                    <p className="text-xs text-destructive">{crestPasteError}</p>
+                                )}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Club Name</Label>

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Competition, Fixture, Pitch, Team, Group, Club, PitchBreakItem, Tournament } from '@/lib/types';
+import { Competition, Fixture, Pitch, Team, Group, Club, Location, PitchBreakItem, Tournament } from '@/lib/types';
 import { v4 as uuidv4 } from 'uuid';
 import { getGroupPitchIds } from '@/lib/groupPitches';
 import { generateMatchIdsForCompetition } from '@/utils/matchIdUtils';
@@ -47,9 +47,15 @@ interface TournamentContextType {
 
   // Pitch Actions
   pitches: Pitch[];
-  addPitch: (name: string, startTime?: string, endTime?: string) => void;
+  addPitch: (name: string, startTime?: string, endTime?: string, locationId?: string) => void;
   updatePitch: (id: string, updates: Partial<Pitch>) => void;
   deletePitch: (id: string) => void;
+
+  // Location Actions
+  locations: Location[];
+  addLocation: (location: Omit<Location, 'id'>) => void;
+  updateLocation: (id: string, updates: Partial<Location>) => void;
+  deleteLocation: (id: string) => void;
 
   // Scheduling
   autoScheduleMatches: (competitionId: string, pitchBreaks?: PitchBreakItem[]) => void;
@@ -139,6 +145,11 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Migrate: ensure all tournaments have updatedAt
       return loadedTournaments.map(t => ({
         ...t,
+        locations: t.locations || [],
+        pitches: (t.pitches || []).map((pitch) => ({
+          ...pitch,
+          locationId: pitch.locationId,
+        })),
         competitions: t.competitions.map((comp, index) => ({
           ...comp,
           color: comp.color || generateCompetitionColor(index)
@@ -163,7 +174,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         updatedAt: now,
         competitions: legacyCompetitions ? JSON.parse(legacyCompetitions) : [],
         pitches: legacyPitches ? JSON.parse(legacyPitches) : [],
-        clubs: legacyClubs ? JSON.parse(legacyClubs) : []
+        clubs: legacyClubs ? JSON.parse(legacyClubs) : [],
+        locations: []
       };
       
       // Migrate: ensure competitions have colors
@@ -210,6 +222,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const competitions = currentTournament?.competitions || [];
   const pitches = currentTournament?.pitches || [];
   const clubs = currentTournament?.clubs || [];
+  const locations = currentTournament?.locations || [];
 
   // Handle migration: if we have tournaments but no current selection, select the first one
   useEffect(() => {
@@ -245,7 +258,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       updatedAt: now,
       competitions: [],
       pitches: [],
-      clubs: []
+      clubs: [],
+      locations: []
     };
     setTournaments(prev => [...prev, newTournament]);
     return newTournament;
@@ -266,8 +280,12 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         ...comp,
         color: comp.color || generateCompetitionColor(index)
       })),
-      pitches: tournament.pitches || [],
-      clubs: tournament.clubs || []
+      pitches: (tournament.pitches || []).map((pitch) => ({
+        ...pitch,
+        locationId: pitch.locationId,
+      })),
+      clubs: tournament.clubs || [],
+      locations: tournament.locations || []
     };
 
     setTournaments(prev => [...prev, normalizedTournament]);
@@ -377,6 +395,40 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         )
       })),
       updatedAt: new Date().toISOString()
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
+
+  const addLocation = useCallback((location: Omit<Location, 'id'>) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament((t) => ({
+      ...t,
+      locations: [...(t.locations || []), { ...location, id: uuidv4() }],
+      updatedAt: new Date().toISOString(),
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
+
+  const updateLocation = useCallback((id: string, updates: Partial<Location>) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament((t) => ({
+      ...t,
+      locations: (t.locations || []).map((location) =>
+        location.id === id ? { ...location, ...updates } : location
+      ),
+      updatedAt: new Date().toISOString(),
+    }));
+  }, [currentTournamentId, updateCurrentTournament]);
+
+  const deleteLocation = useCallback((id: string) => {
+    if (!currentTournamentId) return;
+    updateCurrentTournament((t) => ({
+      ...t,
+      locations: (t.locations || []).filter((location) => location.id !== id),
+      pitches: t.pitches.map((pitch) =>
+        pitch.locationId === id
+          ? { ...pitch, locationId: undefined }
+          : pitch
+      ),
+      updatedAt: new Date().toISOString(),
     }));
   }, [currentTournamentId, updateCurrentTournament]);
 
@@ -760,11 +812,11 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   }, [currentTournamentId]);
 
-  const addPitch = useCallback((name: string, startTime?: string, endTime?: string) => {
+  const addPitch = useCallback((name: string, startTime?: string, endTime?: string, locationId?: string) => {
     if (!currentTournamentId) return;
     updateCurrentTournament(t => ({
       ...t,
-      pitches: [...t.pitches, { id: uuidv4(), name, startTime, endTime }],
+      pitches: [...t.pitches, { id: uuidv4(), name, startTime, endTime, locationId }],
       updatedAt: new Date().toISOString()
     }));
   }, [currentTournamentId, updateCurrentTournament]);
@@ -1543,6 +1595,10 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       addClub,
       updateClub,
       deleteClub,
+      locations,
+      addLocation,
+      updateLocation,
+      deleteLocation,
       addTeam,
       updateTeam,
       deleteTeam,

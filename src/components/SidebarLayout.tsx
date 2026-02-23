@@ -29,7 +29,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useTournament } from "@/context/TournamentContext";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
-import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList, Shield, Grid3x3, Users, Info } from "lucide-react";
+import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList, Shield, Grid3x3, Users, Info, MapPin } from "lucide-react";
 import { CompetitionBadge } from "@/components/CompetitionBadge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -47,6 +47,7 @@ export default function SidebarLayout() {
   const { competitions, addCompetition, currentTournament } = useTournament();
   const navigate = useNavigate();
   const location = useLocation();
+  const isPrintMode = location.pathname === '/reports/print' || new URLSearchParams(location.search).get('print') === '1';
   const [newCompName, setNewCompName] = React.useState("");
   const [isDialogOpen, setIsDialogOpen] = React.useState(false);
 
@@ -179,6 +180,14 @@ export default function SidebarLayout() {
     );
   };
 
+  if (isPrintMode) {
+    return (
+      <main className="min-h-screen bg-background p-4">
+        <Outlet />
+      </main>
+    );
+  }
+
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
@@ -257,6 +266,16 @@ export default function SidebarLayout() {
                   </CollapsibleContent>
                 </SidebarMenuItem>
               </Collapsible>
+
+              {/* Locations */}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location.pathname.startsWith("/locations")}>
+                  <Link to="/locations">
+                    <MapPin />
+                    <span>Locations</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
 
               {/* Clubs */}
               <Collapsible asChild className="group/collapsible" defaultOpen={location.pathname === "/clubs/participants" || location.pathname === "/clubs/map"}>
@@ -496,6 +515,13 @@ export default function SidebarLayout() {
                         <SidebarMenuSubButton asChild isActive={location.pathname === "/reports/by-team"}>
                           <Link to="/reports/by-team">
                             <span>By Team</span>
+                          </Link>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton asChild isActive={location.pathname === "/reports/print"}>
+                          <Link to="/reports/print">
+                            <span>Print report</span>
                           </Link>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>

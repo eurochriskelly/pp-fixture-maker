@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTournament } from '@/context/TournamentContext';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { TeamBadge, TeamDisplay } from '@/components/FixtureComponents';
 import { formatKnockoutCode, toThreeChars } from '@/components/FixtureComponents';
@@ -452,6 +452,19 @@ const ByTeam: React.FC = () => {
       .sort((a, b) => a.club.name.localeCompare(b.club.name));
   }, [clubById, competitions, pitchNameById, resolveLeadClubId]);
 
+  const maxTeamsPerClub = React.useMemo(
+    () => Math.max(1, ...clubSchedules.map((schedule) => schedule.teams.length)),
+    [clubSchedules]
+  );
+
+  const teamGridClassName = React.useMemo(() => {
+    const columnCap = Math.min(maxTeamsPerClub, 4);
+    if (columnCap <= 1) return 'grid grid-cols-1 gap-4';
+    if (columnCap === 2) return 'grid grid-cols-1 md:grid-cols-2 gap-4';
+    if (columnCap === 3) return 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4';
+    return 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4';
+  }, [maxTeamsPerClub]);
+
   return (
     <div className="space-y-6">
       <div>
@@ -496,9 +509,13 @@ const ByTeam: React.FC = () => {
                       {groupFixtureCount} group + {eliminationFixtureCount > 0 ? eliminationFixtureCount : '??'} elimination fixtures
                     </Badge>
                   </CardTitle>
+                  <CardDescription className="space-y-0.5 text-xs">
+                    <p>Losing team umpires next match on same pitch</p>
+                    <p>Times may drift due to slippage</p>
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1">
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+                  <div className={teamGridClassName}>
                     {schedule.teams
                       .slice()
                       .sort((a, b) => {
@@ -643,7 +660,10 @@ const ByTeam: React.FC = () => {
                                         key={`${teamSchedule.teamId}-${entry.id}`}
                                         className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs"
                                       >
-                                        <span className="font-mono font-semibold text-slate-700">{entry.startTime}</span>
+                                        <span className="flex items-center gap-1.5 text-sm font-mono font-semibold text-slate-700">
+                                          <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                                          {entry.startTime}
+                                        </span>
                                         <span className="text-right text-slate-600">
                                           {teamSchedule.competitionName} • {entry.bracketLabel}
                                         </span>

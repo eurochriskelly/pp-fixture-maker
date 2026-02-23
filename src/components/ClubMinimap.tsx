@@ -86,16 +86,16 @@ export default function ClubMinimap({ clubs }: ClubMinimapProps) {
   const defaultCenter: [number, number] = [50.0, 10.0];
 
   return (
-    <Card>
+    <Card className="h-full flex flex-col">
       <CardHeader className="pb-3">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <MapPin className="w-5 h-5 text-primary" />
           Club Locations
         </h2>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 flex flex-col">
         {validClubs.length === 0 ? (
-          <div className="h-[200px] flex items-center justify-center text-muted-foreground bg-muted/50 rounded-lg">
+          <div className="min-h-[200px] h-full flex-1 flex items-center justify-center text-muted-foreground bg-muted/50 rounded-lg">
             <div className="text-center">
               <MapPin className="w-8 h-8 mx-auto mb-2 opacity-50" />
               <p className="text-sm">
@@ -106,11 +106,11 @@ export default function ClubMinimap({ clubs }: ClubMinimapProps) {
             </div>
           </div>
         ) : (
-          <div className="rounded-lg overflow-hidden border">
+          <div className="rounded-lg overflow-hidden border min-h-[200px] h-full flex-1">
             <MapContainer
               center={defaultCenter}
               zoom={5}
-              style={{ height: "200px", width: "100%" }}
+              style={{ height: "100%", width: "100%" }}
               scrollWheelZoom={false}
               dragging={false}
               doubleClickZoom={false}

@@ -7,7 +7,7 @@ import { TeamDisplay } from '@/components/FixtureComponents';
 import { formatKnockoutCode, toThreeChars } from '@/components/FixtureComponents';
 
 import { cn } from '@/lib/utils';
-import { Clock } from 'lucide-react';
+import { AlertTriangle, Clock } from 'lucide-react';
 
 interface MatchDisplay {
   fixture: Fixture;
@@ -95,7 +95,7 @@ const StageHexagon: React.FC<{ fixture: Fixture; competition: Competition }> = (
 };
 
 const ByPitch: React.FC = () => {
-  const { competitions, pitches } = useTournament();
+  const { competitions, pitches, locations } = useTournament();
   const teamNameById = React.useMemo(() => {
     const map = new Map<string, string>();
     competitions.forEach((competition) => {
@@ -129,6 +129,11 @@ const ByPitch: React.FC = () => {
       return [];
     }
   }, []);
+
+  const locationById = React.useMemo(
+    () => new Map(locations.map((location) => [location.id, location])),
+    [locations]
+  );
 
   // Build match rows for a given pitch
   const getMatchesForPitch = (pitch: Pitch): MatchDisplay[] => {
@@ -175,11 +180,39 @@ const ByPitch: React.FC = () => {
     return matches.length > 0;
   });
 
+  const homelessPitches = pitches.filter(
+    (pitch) => !pitch.locationId || !locationById.has(pitch.locationId)
+  );
+
   return (
     <div className="space-y-6">
       <div>
         <p className="text-muted-foreground">View all scheduled matches organized by pitch</p>
       </div>
+
+      {homelessPitches.length > 0 && (
+        <Card className="border-amber-300 bg-amber-50/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-amber-900">
+              <AlertTriangle className="h-4 w-4" />
+              Homeless Pitches
+            </CardTitle>
+            <CardDescription className="text-amber-800">
+              Link these pitches to a location. Reservations on homeless pitches should be fixed.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {homelessPitches.map((pitch) => (
+              <div key={pitch.id} className="flex items-center justify-between rounded border border-amber-300 bg-white px-3 py-2">
+                <div className="font-medium text-amber-950">{pitch.name}</div>
+                <Badge variant="outline" className="border-amber-400 text-amber-900">
+                  {getMatchesForPitch(pitch).length} reservations
+                </Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {pitchesWithMatches.length === 0 ? (
         <Card>
@@ -203,6 +236,11 @@ const ByPitch: React.FC = () => {
                   <CardTitle className="flex items-center gap-2">
                     {pitch.name}
                     <Badge variant="secondary">{matches.length} matches</Badge>
+                    {pitch.locationId && locationById.has(pitch.locationId) ? (
+                      <Badge variant="outline">{locationById.get(pitch.locationId)?.name}</Badge>
+                    ) : (
+                      <Badge variant="destructive">Missing location</Badge>
+                    )}
                   </CardTitle>
                   {pitch.startTime && pitch.endTime && (
                     <CardDescription>

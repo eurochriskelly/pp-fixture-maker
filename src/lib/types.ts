@@ -23,6 +23,21 @@ export interface Club {
   contactPhone?: string;
 }
 
+export interface Location {
+  id: string;
+  name: string;
+  address?: string;
+  website?: string;
+  transportNotes?: string;
+  dressingRoomNotes?: string;
+  notes?: string;
+}
+
+export interface PitchCoordinatePoint {
+  lat: number;
+  lng: number;
+}
+
 export interface Team {
   id: string;
   name: string;
@@ -74,6 +89,9 @@ export interface Pitch {
   name: string;
   startTime?: string; // "HH:mm"
   endTime?: string; // "HH:mm"
+  locationId?: string;
+  coordinates?: PitchCoordinatePoint;
+  boundary?: PitchCoordinatePoint[];
 }
 
 export interface PitchBreakItem {
@@ -93,6 +111,7 @@ export interface Tournament {
   competitions: Competition[];
   pitches: Pitch[];
   clubs: Club[];
+  locations: Location[];
   // Overview fields
   region?: string;
   startDate?: string;
@@ -112,4 +131,5 @@ export interface TournamentData {
   competitions: Competition[];
   pitches: Pitch[];
   clubs: Club[];
+  locations: Location[];
 }

@@ -10,9 +10,11 @@ import Clubs from "./pages/Clubs";
 import ClubsMap from "./pages/ClubsMap";
 import ByPitch from "./pages/ByPitch";
 import ByTeam from "./pages/ByTeam";
+import ReportsPrint from "./pages/ReportsPrint";
 import PlayTime from "./pages/PlayTime";
 import ClubContributions from "./pages/ClubContributions";
 import Officials from "./pages/Officials";
+import Locations from "./pages/Locations";
 import NotFound from "./pages/NotFound";
 import Overview from "./pages/Overview";
 import { TournamentProvider } from "@/context/TournamentContext";
@@ -44,8 +46,10 @@ const App = () => (
               <Route path="/officials/organisers" element={<Officials />} />
               <Route path="/officials/referees" element={<Officials />} />
               <Route path="/officials/coordinators" element={<Officials />} />
+              <Route path="/locations" element={<Locations />} />
               <Route path="/reports/by-pitch" element={<ByPitch />} />
               <Route path="/reports/by-team" element={<ByTeam />} />
+              <Route path="/reports/print" element={<ReportsPrint />} />
               <Route path="/reports/play-time" element={<PlayTime />} />
               <Route path="/reports/club-contributions" element={<ClubContributions />} />
               <Route path="/competition/:id" element={<Navigate to="groups" replace />} />

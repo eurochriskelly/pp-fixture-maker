@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTournament } from '@/context/TournamentContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Slider } from '@/components/ui/slider';
 import { Clock, Plus, X, ChevronRight, RotateCcw, AlertTriangle } from 'lucide-react';
 import { getFixtureSlack, minutesFromMidnight, timeFromMinutes } from '@/utils/scheduleUtils';
 import { Fixture, Group, Pitch, PitchBreakItem } from '@/lib/types';
@@ -20,8 +21,18 @@ import {
 } from "@/components/ui/sidebar";
 import { FixtureDetailsPanel } from '@/components/FixtureDetailsPanel';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
-const PIXELS_PER_MINUTE = 2;
+const BASE_PIXELS_PER_MINUTE = 2;
+const MIN_VERTICAL_SCALE = 1;
+const MAX_VERTICAL_SCALE = 5;
+const DEFAULT_VERTICAL_SCALE = 3;
 const VIEW_START_HOUR = 8;
 const VIEW_END_HOUR = 20;
 const DEFAULT_PITCH_START = '09:00';
@@ -36,6 +47,7 @@ const DEFAULT_BREAK_DURATION = 20;
 const MIN_BREAK_DURATION = 5;
 const BREAK_DURATION_STEP_MINUTES = 1;
 const PITCH_BREAKS_STORAGE_KEY = 'tournament_pitch_breaks_v1';
+const SCHEDULE_VERTICAL_SCALE_STORAGE_KEY = 'tournament_schedule_vertical_scale_v1';
 const BREAK_PATTERN_GRAY = 'repeating-linear-gradient(45deg, #6b7280, #6b7280 4px, #4b5563 4px, #4b5563 8px)';
 const DRAWER_HEIGHT_PX = 280; // Fixed height for the details drawer
 
@@ -87,6 +99,7 @@ const Schedule = () => {
   const {
     competitions,
     pitches,
+    locations,
     addPitch,
     updatePitch,
     deletePitch,
@@ -100,6 +113,15 @@ const Schedule = () => {
 
   const [pitchDrafts, setPitchDrafts] = React.useState<Record<string, PitchDraft>>({});
   const pitchDraftsRef = React.useRef<Record<string, PitchDraft>>({});
+  const [verticalScale, setVerticalScale] = React.useState(() => {
+    const saved = Number(localStorage.getItem(SCHEDULE_VERTICAL_SCALE_STORAGE_KEY));
+    if (Number.isFinite(saved)) {
+      return Math.max(MIN_VERTICAL_SCALE, Math.min(MAX_VERTICAL_SCALE, saved));
+    }
+    return DEFAULT_VERTICAL_SCALE;
+  });
+  const pixelsPerMinute = BASE_PIXELS_PER_MINUTE * verticalScale;
+  const textScale = 1 + (verticalScale - 1) * 0.25;
   const [pitchBreaks, setPitchBreaks] = React.useState<PitchBreakItem[]>(() => {
     try {
       const saved = localStorage.getItem(PITCH_BREAKS_STORAGE_KEY);
@@ -142,6 +164,7 @@ const Schedule = () => {
   const changeFeedbackTimeoutRef = React.useRef<number | null>(null);
   const swapFeedbackTimeoutRef = React.useRef<number | null>(null);
   const [openCompetitionIds, setOpenCompetitionIds] = React.useState<string[]>([]);
+  const [newPitchLocationId, setNewPitchLocationId] = React.useState<string>('unassigned');
   
   // Selection state
   const [selectedFixtureId, setSelectedFixtureId] = React.useState<string | null>(null);
@@ -167,6 +190,10 @@ const Schedule = () => {
   React.useEffect(() => {
     localStorage.setItem(PITCH_BREAKS_STORAGE_KEY, JSON.stringify(pitchBreaks));
   }, [pitchBreaks]);
+
+  React.useEffect(() => {
+    localStorage.setItem(SCHEDULE_VERTICAL_SCALE_STORAGE_KEY, String(verticalScale));
+  }, [verticalScale]);
 
   React.useEffect(() => {
     const resetDragUi = () => {
@@ -218,6 +245,19 @@ const Schedule = () => {
     });
   }, [competitions]);
 
+  React.useEffect(() => {
+    if (locations.length === 0) {
+      setNewPitchLocationId('unassigned');
+      return;
+    }
+    setNewPitchLocationId((current) => {
+      if (current !== 'unassigned' && locations.some((location) => location.id === current)) {
+        return current;
+      }
+      return locations[0].id;
+    });
+  }, [locations]);
+
   const effectivePitches = React.useMemo(
     () =>
       pitches.map((pitch) => {
@@ -237,6 +277,31 @@ const Schedule = () => {
     () => new Map(effectivePitches.map((pitch) => [pitch.id, pitch])),
     [effectivePitches]
   );
+
+  const locationById = React.useMemo(
+    () => new Map(locations.map((location) => [location.id, location])),
+    [locations]
+  );
+
+  const homelessPitchIds = React.useMemo(() => {
+    return new Set(
+      effectivePitches
+        .filter((pitch) => !pitch.locationId || !locationById.has(pitch.locationId))
+        .map((pitch) => pitch.id)
+    );
+  }, [effectivePitches, locationById]);
+
+  const homelessScheduledFixtures = React.useMemo(() => {
+    let count = 0;
+    competitions.forEach((competition) => {
+      competition.fixtures.forEach((fixture) => {
+        if (fixture.pitchId && homelessPitchIds.has(fixture.pitchId)) {
+          count += 1;
+        }
+      });
+    });
+    return count;
+  }, [competitions, homelessPitchIds]);
 
   // Detect team time conflicts and insufficient rest periods
   const { teamConflictFixtureIds, restWarningsByFixtureId } = React.useMemo(() => {
@@ -381,7 +446,12 @@ const Schedule = () => {
       name = `Pitch ${counter}`;
     }
 
-    addPitch(name, DEFAULT_PITCH_START, DEFAULT_PITCH_END);
+    const chosenLocationId =
+      newPitchLocationId !== 'unassigned' && locations.some((location) => location.id === newPitchLocationId)
+        ? newPitchLocationId
+        : undefined;
+
+    addPitch(name, DEFAULT_PITCH_START, DEFAULT_PITCH_END, chosenLocationId);
   };
 
   const handleDeletePitch = (pitchId: string) => {
@@ -427,7 +497,7 @@ const Schedule = () => {
 
       const rect = container.getBoundingClientRect();
       const yInGrid = event.clientY - rect.top + container.scrollTop;
-      const rawMinutes = VIEW_START_HOUR * 60 + Math.round(yInGrid / PIXELS_PER_MINUTE);
+      const rawMinutes = VIEW_START_HOUR * 60 + Math.round(yInGrid / pixelsPerMinute);
       const snappedMinutes = Math.round(rawMinutes / DRAG_SNAP_MINUTES) * DRAG_SNAP_MINUTES;
       const minMinutes = VIEW_START_HOUR * 60;
       const maxMinutes = VIEW_END_HOUR * 60;
@@ -488,7 +558,7 @@ const Schedule = () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [draggingPitchBoundary, commitPitchDraft, pitches]);
+  }, [draggingPitchBoundary, commitPitchDraft, pitches, pixelsPerMinute]);
 
   const onPitchBoundaryMouseDown = (
     event: React.MouseEvent,
@@ -1121,13 +1191,13 @@ const Schedule = () => {
     if (draggingItem.kind === 'fixture') {
       const fixtureContext = findFixtureContext(draggingItem.id);
       return fixtureContext
-        ? getFixtureBlockMinutes(fixtureContext.fixture, fixtureContext.groups) * PIXELS_PER_MINUTE
+        ? getFixtureBlockMinutes(fixtureContext.fixture, fixtureContext.groups) * pixelsPerMinute
         : 0;
     }
 
     const breakContext = findBreakContext(draggingItem.id);
     return breakContext
-      ? Math.max(MIN_BREAK_DURATION, breakContext.pitchBreak.duration || DEFAULT_BREAK_DURATION) * PIXELS_PER_MINUTE
+      ? Math.max(MIN_BREAK_DURATION, breakContext.pitchBreak.duration || DEFAULT_BREAK_DURATION) * pixelsPerMinute
       : 0;
   })();
 
@@ -1345,7 +1415,7 @@ const Schedule = () => {
 
     const onMouseMove = (event: MouseEvent) => {
       const deltaPixels = event.clientY - draggingBreakResize.startClientY;
-      const deltaMinutesRaw = deltaPixels / PIXELS_PER_MINUTE;
+      const deltaMinutesRaw = deltaPixels / pixelsPerMinute;
       const deltaMinutesSnapped =
         Math.round(deltaMinutesRaw / BREAK_DURATION_STEP_MINUTES) * BREAK_DURATION_STEP_MINUTES;
       const nextDuration = Math.max(
@@ -1384,6 +1454,7 @@ const Schedule = () => {
     buildPitchTimelineUpdates,
     getActuallyChangedFixtureIds,
     listPitchTimeline,
+    pixelsPerMinute,
     showChangeFeedback,
   ]);
 
@@ -1485,7 +1556,8 @@ const Schedule = () => {
 
   // Time grid helpers
   const totalMinutes = (VIEW_END_HOUR - VIEW_START_HOUR) * 60;
-  const gridHeight = totalMinutes * PIXELS_PER_MINUTE;
+  const gridHeight = totalMinutes * pixelsPerMinute;
+  const scaledFontSize = (base: number) => `${(base * textScale).toFixed(1)}px`;
   const timeLabels = [];
   for (let h = VIEW_START_HOUR; h <= VIEW_END_HOUR; h++) {
     timeLabels.push(momentFromHour(h));
@@ -1500,9 +1572,32 @@ const Schedule = () => {
       <SidebarGroupLabel>Schedule Tools</SidebarGroupLabel>
       <SidebarMenu>
         <SidebarMenuItem>
-          <SidebarMenuButton onClick={handleAddPitch}>
-            <Plus /> <span>Add Pitch</span>
-          </SidebarMenuButton>
+          <div className="space-y-2 rounded-md border border-sidebar-border/70 bg-background/60 p-2">
+            <div className="text-xs font-medium text-muted-foreground">Add Pitch</div>
+            <Select value={newPitchLocationId} onValueChange={setNewPitchLocationId}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Link to location" />
+              </SelectTrigger>
+              <SelectContent>
+                {locations.length === 0 ? (
+                  <SelectItem value="unassigned">No locations available</SelectItem>
+                ) : (
+                  locations.map((location) => (
+                    <SelectItem key={location.id} value={location.id}>
+                      {location.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            <SidebarMenuButton
+              onClick={handleAddPitch}
+              disabled={locations.length === 0}
+              tooltip={locations.length === 0 ? 'Create a location first.' : undefined}
+            >
+              <Plus /> <span>Add Pitch</span>
+            </SidebarMenuButton>
+          </div>
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton onClick={handleAutoSchedule}>
@@ -1532,6 +1627,25 @@ const Schedule = () => {
           <SidebarMenuButton onClick={() => effectivePitches.length > 0 && handleAddBreak(effectivePitches[0].id)}>
             <Plus /> <span>Add Break</span>
           </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <div className="rounded-md border border-sidebar-border/70 bg-background/60 px-2 py-2">
+            <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+              <span>Vertical Zoom</span>
+              <span className="font-semibold text-foreground">{verticalScale}x</span>
+            </div>
+            <Slider
+              min={MIN_VERTICAL_SCALE}
+              max={MAX_VERTICAL_SCALE}
+              step={1}
+              value={[verticalScale]}
+              onValueChange={(value) => {
+                if (!value.length) return;
+                setVerticalScale(value[0]);
+              }}
+              aria-label="Scheduler vertical zoom"
+            />
+          </div>
         </SidebarMenuItem>
       </SidebarMenu>
     </SidebarGroup>
@@ -1698,12 +1812,26 @@ const Schedule = () => {
       {schedulePortalTarget && createPortal(ScheduleToolsPortal, schedulePortalTarget)}
       {competitionsPortalTarget && createPortal(CompetitionsDetailPortal, competitionsPortalTarget)}
 
+      {homelessPitchIds.size > 0 && (
+        <div className="mb-3 flex items-center justify-between rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm">
+          <div className="flex items-center gap-2 text-amber-900">
+            <AlertTriangle className="h-4 w-4" />
+            <span>
+              {homelessPitchIds.size} pitch{homelessPitchIds.size === 1 ? '' : 'es'} without a location.
+            </span>
+          </div>
+          <span className="text-xs font-medium text-amber-800">
+            {homelessScheduledFixtures} reservation{homelessScheduledFixtures === 1 ? '' : 's'} affected
+          </span>
+        </div>
+      )}
+
       <div className="absolute inset-0 flex flex-col min-h-0 border rounded-lg bg-white overflow-hidden shadow-sm mb-0">
           {/* Header: Fixed top */}
-          <div className="absolute top-0 left-0 right-0 h-12 border-b bg-slate-50 z-20 flex">
+          <div className="absolute top-0 left-0 right-0 h-20 border-b bg-slate-50 z-20 flex">
             <div className="w-16 flex-none border-r p-2 text-xs font-semibold text-center text-muted-foreground flex items-center justify-center">Time</div>
             {effectivePitches.map(pitch => (
-              <div key={pitch.id} className="flex-1 border-r last:border-r-0 p-2 flex items-center">
+              <div key={pitch.id} className="flex-1 border-r last:border-r-0 p-2 flex flex-col justify-center gap-1">
                 <div className="flex items-center gap-1 w-full">
                   <Input
                     value={pitch.name}
@@ -1727,6 +1855,27 @@ const Schedule = () => {
                     <X className="h-4 w-4 text-muted-foreground" />
                   </Button>
                 </div>
+                <Select
+                  value={pitch.locationId || 'unassigned'}
+                  onValueChange={(value) =>
+                    updatePitch(pitch.id, { locationId: value === 'unassigned' ? undefined : value })
+                  }
+                >
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue placeholder="Location" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned">Unassigned location</SelectItem>
+                    {locations.map((location) => (
+                      <SelectItem key={location.id} value={location.id}>
+                        {location.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {(!pitch.locationId || !locationById.has(pitch.locationId)) && (
+                  <div className="text-[10px] font-medium text-amber-700">Warning: homeless pitch</div>
+                )}
               </div>
             ))}
           </div>
@@ -1736,7 +1885,7 @@ const Schedule = () => {
             ref={gridScrollRef} 
             className="absolute left-0 right-0 overflow-y-auto bg-slate-50/30 transition-[bottom] duration-300 ease-in-out"
             style={{ 
-              top: '3rem', 
+              top: '5rem', 
               bottom: selectedFixtureId ? `${DRAWER_HEIGHT_PX}px` : '0' 
             }}
           >
@@ -1747,10 +1896,12 @@ const Schedule = () => {
                 {timeLabels.map((time, i) => (
                   <div
                     key={time}
-                    className="absolute w-full text-right pr-2 text-xs text-muted-foreground border-b border-gray-100"
-                    style={{ top: i * 60 * PIXELS_PER_MINUTE, height: 60 * PIXELS_PER_MINUTE }}
+                    className="absolute w-full text-right pr-2 text-muted-foreground border-b border-gray-100"
+                    style={{ top: i * 60 * pixelsPerMinute, height: 60 * pixelsPerMinute }}
                   >
-                    <span className="-translate-y-1/2 block mt-[0px]">{time}</span>
+                    <span className="-translate-y-1/2 block mt-[0px]" style={{ fontSize: scaledFontSize(12) }}>
+                      {time}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -1762,12 +1913,12 @@ const Schedule = () => {
                 const viewStartMins = VIEW_START_HOUR * 60;
                 const pitchStartMins = minutesFromMidnight(pitch.startTime || DEFAULT_ASSIGN_TIME);
                 const insertionSlots = Array.from({ length: pitchTimeline.length + 1 }, (_, index) => {
-                  let top = (pitchStartMins - viewStartMins) * PIXELS_PER_MINUTE;
+                  let top = (pitchStartMins - viewStartMins) * pixelsPerMinute;
 
                   if (index > 0 && index < pitchTimeline.length) {
                     const next = pitchTimeline[index];
                     const nextStartMins = getTimelineStartMinutes(next);
-                    top = (nextStartMins - viewStartMins) * PIXELS_PER_MINUTE;
+                    top = (nextStartMins - viewStartMins) * pixelsPerMinute;
                   }
 
                   if (index === pitchTimeline.length && pitchTimeline.length > 0) {
@@ -1776,7 +1927,7 @@ const Schedule = () => {
                     top = (
                       (previousStart - viewStartMins) +
                       getTimelineBlockMinutes(previous)
-                    ) * PIXELS_PER_MINUTE;
+                    ) * pixelsPerMinute;
                   }
 
                   return {
@@ -1785,9 +1936,9 @@ const Schedule = () => {
                   };
                 });
 
-                const pitchStartTop = Math.max(0, Math.min(gridHeight, (pitchStartMins - viewStartMins) * PIXELS_PER_MINUTE));
+                const pitchStartTop = Math.max(0, Math.min(gridHeight, (pitchStartMins - viewStartMins) * pixelsPerMinute));
                 const pitchEndMins = minutesFromMidnight(pitch.endTime || DEFAULT_PITCH_END);
-                const pitchEndTop = Math.max(0, Math.min(gridHeight, (pitchEndMins - viewStartMins) * PIXELS_PER_MINUTE));
+                const pitchEndTop = Math.max(0, Math.min(gridHeight, (pitchEndMins - viewStartMins) * pixelsPerMinute));
 
                 return (
                   <div
@@ -1826,7 +1977,7 @@ const Schedule = () => {
                       <div
                         key={i}
                         className="absolute w-full border-b border-gray-100/50 pointer-events-none"
-                        style={{ top: i * 60 * PIXELS_PER_MINUTE, height: 60 * PIXELS_PER_MINUTE }}
+                        style={{ top: i * 60 * pixelsPerMinute, height: 60 * pixelsPerMinute }}
                       />
                     ))}
 
@@ -1835,8 +1986,8 @@ const Schedule = () => {
                       const pStart = minutesFromMidnight(pitch.startTime || DEFAULT_PITCH_START);
                       const pEnd = minutesFromMidnight(pitch.endTime || DEFAULT_PITCH_END);
 
-                      const topUnavailableHeight = Math.max(0, (pStart - viewStartMins) * PIXELS_PER_MINUTE);
-                      const bottomUnavailableStart = Math.max(0, (pEnd - viewStartMins) * PIXELS_PER_MINUTE);
+                      const topUnavailableHeight = Math.max(0, (pStart - viewStartMins) * pixelsPerMinute);
+                      const bottomUnavailableStart = Math.max(0, (pEnd - viewStartMins) * pixelsPerMinute);
                       const bottomUnavailableHeight = Math.max(0, gridHeight - bottomUnavailableStart);
 
                       return (
@@ -1954,10 +2105,10 @@ const Schedule = () => {
                         const slack = getFixtureSlack(fixture, groups);
                         const slackBefore = fixture.slackBefore || 0;
 
-                        const top = (startMins - slackBefore - viewStartMins) * PIXELS_PER_MINUTE;
-                        const heightSlackBefore = slackBefore * PIXELS_PER_MINUTE;
-                        const heightMatch = duration * PIXELS_PER_MINUTE;
-                        const heightSlack = slack * PIXELS_PER_MINUTE;
+                        const top = (startMins - slackBefore - viewStartMins) * pixelsPerMinute;
+                        const heightSlackBefore = slackBefore * pixelsPerMinute;
+                        const heightMatch = duration * pixelsPerMinute;
+                        const heightSlack = slack * pixelsPerMinute;
 
                         const hasOverrides = fixture.duration !== undefined || fixture.slack !== undefined || fixture.rest !== undefined;
 
@@ -1973,7 +2124,7 @@ const Schedule = () => {
                             onDrop={(e) => onDropFixture(e, fixture.id)}
                             onClick={() => handleFixtureClick(fixture.id)}
                             className={cn(
-                              'absolute w-[95%] left-[2.5%] rounded shadow-sm cursor-move text-[10px] overflow-hidden group hover:z-20 transition-all duration-200',
+                              'absolute w-[95%] left-[2.5%] rounded shadow-sm cursor-move overflow-hidden group hover:z-20 transition-all duration-200',
                               draggingItem?.kind === 'fixture' && draggingItem.id === fixture.id && 'opacity-50',
                               recentlyChangedIds.includes(fixture.id) && 'fixture-change-fade',
                               recentlyPrimaryChangedId === fixture.id && 'fixture-change-primary',
@@ -1989,28 +2140,29 @@ const Schedule = () => {
                               borderTop: teamConflictFixtureIds.has(fixture.id) ? '1px solid #ef4444' : '1px solid #e2e8f0',
                               borderRight: teamConflictFixtureIds.has(fixture.id) ? '1px solid #ef4444' : '1px solid #e2e8f0',
                               borderBottom: teamConflictFixtureIds.has(fixture.id) ? '1px solid #ef4444' : '1px solid #e2e8f0',
+                              fontSize: scaledFontSize(10),
                               opacity: isKnockout ? 1 : undefined
                             }}
                             title={`${fixture.startTime} - ${comp?.name} - ${fixture.stage || 'Group'} - ${homeDisplay} vs ${awayDisplay}${teamConflictFixtureIds.has(fixture.id) ? ' ⚠ Team time conflict' : ''}`}
                           >
                             {/* ... (markers) ... */}
                             {dropTargetFixtureId === fixture.id && (
-                              <div className="absolute top-0.5 right-5 rounded bg-amber-500/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
+                              <div className="absolute top-0.5 right-5 rounded bg-amber-500/95 text-white px-1 py-0 font-semibold pointer-events-none" style={{ fontSize: scaledFontSize(9) }}>
                                 Swap here
                               </div>
                             )}
                             {recentlySwappedIds.includes(fixture.id) && (
-                              <div className="absolute top-0.5 right-5 rounded bg-emerald-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
+                              <div className="absolute top-0.5 right-5 rounded bg-emerald-600/95 text-white px-1 py-0 font-semibold pointer-events-none" style={{ fontSize: scaledFontSize(9) }}>
                                 Swapped
                               </div>
                             )}
                             {recentlyPrimaryChangedId === fixture.id && (
-                              <div className="absolute top-0.5 left-0.5 rounded bg-amber-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none">
+                              <div className="absolute top-0.5 left-0.5 rounded bg-amber-600/95 text-white px-1 py-0 font-semibold pointer-events-none" style={{ fontSize: scaledFontSize(9) }}>
                                 Moved
                               </div>
                             )}
                             {teamConflictFixtureIds.has(fixture.id) && (
-                              <div className="absolute top-0.5 right-0.5 rounded bg-red-600/95 text-white px-1 py-0 text-[9px] font-semibold pointer-events-none z-10">
+                              <div className="absolute top-0.5 right-0.5 rounded bg-red-600/95 text-white px-1 py-0 font-semibold pointer-events-none z-10" style={{ fontSize: scaledFontSize(9) }}>
                                 ⚠ Clash
                               </div>
                             )}
@@ -2040,7 +2192,7 @@ const Schedule = () => {
                               style={{ height: heightMatch }}
                             >
                               {fixture.matchId && (
-                                <div className="absolute top-0.5 right-0.5 text-[9px] font-bold bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded">
+                                <div className="absolute top-0.5 right-0.5 font-bold bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded" style={{ fontSize: scaledFontSize(9) }}>
                                   {fixture.matchId}
                                 </div>
                               )}
@@ -2066,7 +2218,7 @@ const Schedule = () => {
                                 })()}
                               </div>
                               {isKnockout && fixture.description && (
-                                <div className="truncate text-[9px] text-purple-700 italic">
+                                <div className="truncate text-purple-700 italic" style={{ fontSize: scaledFontSize(9) }}>
                                   {fixture.description}
                                 </div>
                               )}
@@ -2101,8 +2253,8 @@ const Schedule = () => {
                       const pitchBreak = timelineItem.item;
                       const duration = Math.max(MIN_BREAK_DURATION, pitchBreak.duration || DEFAULT_BREAK_DURATION);
                       const startMins = minutesFromMidnight(pitchBreak.startTime || DEFAULT_ASSIGN_TIME);
-                      const top = (startMins - viewStartMins) * PIXELS_PER_MINUTE;
-                      const height = duration * PIXELS_PER_MINUTE;
+                      const top = (startMins - viewStartMins) * pixelsPerMinute;
+                      const height = duration * pixelsPerMinute;
 
                       if (top < 0 && top + height < 0) return null;
 
@@ -2120,7 +2272,7 @@ const Schedule = () => {
                             setSelectedFixtureId(null);
                           }}
                           className={cn(
-                            'absolute w-[95%] left-[2.5%] rounded border border-slate-700 text-[10px] overflow-hidden shadow-sm cursor-move',
+                            'absolute w-[95%] left-[2.5%] rounded border border-slate-700 overflow-hidden shadow-sm cursor-move',
                             isResizing && 'ring-2 ring-amber-400',
                             draggingItem?.kind === 'break' && draggingItem.id === pitchBreak.id && 'opacity-50',
                             selectedBreakId === pitchBreak.id && 'ring-2 ring-emerald-400'
@@ -2128,17 +2280,18 @@ const Schedule = () => {
                           style={{
                             top,
                             height,
+                            fontSize: scaledFontSize(10),
                             background: BREAK_PATTERN_GRAY,
                           }}
                           title={`${pitchBreak.startTime} - ${pitchBreak.label}`}
                         >
                           <div className="relative h-full w-full px-1.5 py-1 text-slate-100">
                             <div className="flex items-center justify-between gap-1">
-                              <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-100/90">
+                              <div className="font-semibold uppercase tracking-wide text-slate-100/90" style={{ fontSize: scaledFontSize(9) }}>
                                 {pitchBreak.startTime}
                               </div>
                               <div className="flex items-center gap-1">
-                                <div className="text-[9px] font-semibold text-slate-100/90">{duration}m</div>
+                                <div className="font-semibold text-slate-100/90" style={{ fontSize: scaledFontSize(9) }}>{duration}m</div>
                                 {!isCompactBreak && (
                                 <button
                                   onClick={(event) => {
@@ -2164,16 +2317,17 @@ const Schedule = () => {
                                     (event.target as HTMLInputElement).blur();
                                   }
                                 }}
-                                className="mt-1 h-5 w-full rounded border border-slate-300/80 bg-slate-100/20 px-1 text-[10px] font-semibold text-white placeholder:text-slate-100/80 focus:outline-none focus:ring-1 focus:ring-amber-300"
+                                className="mt-1 h-5 w-full rounded border border-slate-300/80 bg-slate-100/20 px-1 font-semibold text-white placeholder:text-slate-100/80 focus:outline-none focus:ring-1 focus:ring-amber-300"
+                                style={{ fontSize: scaledFontSize(10) }}
                                 placeholder="Break label"
                                 aria-label="Break label"
                               />
                             ) : (
-                              <div className="mt-0.5 truncate text-[9px] text-slate-100/90">{pitchBreak.label}</div>
+                              <div className="mt-0.5 truncate text-slate-100/90" style={{ fontSize: scaledFontSize(9) }}>{pitchBreak.label}</div>
                             )}
 
                             {!isCompactBreak ? (
-                              <div className="mt-1 text-[9px] text-slate-100/90">{duration} min</div>
+                              <div className="mt-1 text-slate-100/90" style={{ fontSize: scaledFontSize(9) }}>{duration} min</div>
                             ) : null}
 
                             <button

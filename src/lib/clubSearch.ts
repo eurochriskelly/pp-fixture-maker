@@ -69,7 +69,7 @@ export async function searchClubInfo(clubName: string, apiKey: string): Promise<
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
         ...(provider === 'openrouter' && {
-          'HTTP-Referer': 'https://dyad.sh', // Optional but good practice
+          'HTTP-Referer': 'https://pitchperfect.eu.com', 
           'X-Title': 'PP Fixture Maker'
         })
       },
