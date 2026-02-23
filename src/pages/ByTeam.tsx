@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTournament } from '@/context/TournamentContext';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { TeamBadge, TeamDisplay } from '@/components/FixtureComponents';
 import { formatKnockoutCode, toThreeChars } from '@/components/FixtureComponents';
@@ -39,6 +39,7 @@ interface TeamSchedule {
   team: Team;
   competitionId: string;
   competitionName: string;
+  competitionColor?: string;
   fixtures: TeamFixtureDisplay[];
   umpireDuties: TeamUmpireDisplay[];
   timeline: TeamTimelineEntry[];
@@ -105,6 +106,11 @@ const sortSilver = (items: SilverEntry[]) =>
     return a.bracketLabel.localeCompare(b.bracketLabel);
   });
 
+const getCompetitionInitial = (name: string): string => {
+  const match = name.match(/[A-Za-z0-9]/);
+  return (match?.[0] || '?').toUpperCase();
+};
+
 const GROUP_COLORS = [
   '#DC2626',
   '#2563EB',
@@ -142,73 +148,32 @@ const StageHexagon: React.FC<{ fixture: Fixture; competition: Competition }> = (
   };
 
   const code = toThreeChars(formatStageCode(fixture));
-  const isGroup = fixture.stage === 'Group';
+  const gradientId = `hexGrad-by-team-${fixture.id}`;
+  const color = competition.color || '#64748b';
 
-  if (isGroup) {
-    const groupIndex = fixture.groupId ? (groupIndexMap.get(fixture.groupId) || 1) : 1;
-    const color = GROUP_COLORS[(groupIndex - 1) % GROUP_COLORS.length];
-    const gradientId = `hexGrad-by-team-${fixture.id}`;
-
-    return (
-      <svg
-        viewBox="0 0 60 60"
-        width="58"
-        height="58"
-        role="img"
-        aria-label={`Group ${code}`}
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <defs>
-          <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-            <stop offset="50%" stopColor={color} stopOpacity="0.6" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.3" />
-          </linearGradient>
-        </defs>
-        <polygon points="30,5 52,16 52,44 30,55 8,44 8,16" fill={`url(#${gradientId})`} />
-        <text
-          x="30"
-          y="33"
-          textAnchor="middle"
-          fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
-          fontSize="14"
-          fontWeight="900"
-          fill="#F9FAFB"
-          letterSpacing="0.5"
-        >
-          {code}
-        </text>
-      </svg>
-    );
-  }
-
-  const finalGradientId = `finalGrad-by-team-${fixture.id}`;
   return (
     <svg
-      viewBox="0 0 44 40"
-      width="57"
-      height="52"
+      viewBox="0 0 60 60"
+      width="58"
+      height="58"
       role="img"
       aria-label={`Stage ${code}`}
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
-        <linearGradient id={finalGradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#9CA3AF" stopOpacity="0.3" />
-          <stop offset="50%" stopColor="#374151" stopOpacity="0.8" />
-          <stop offset="100%" stopColor="#9CA3AF" stopOpacity="0.3" />
+        <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="50%" stopColor={color} stopOpacity="0.6" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.3" />
         </linearGradient>
       </defs>
-      <path
-        d="M22 2c7 5 14 4 18 6v14c0 10-7 15-18 16C11 37 4 32 4 22V8c4-2 11-1 18-6Z"
-        fill={`url(#${finalGradientId})`}
-      />
+      <polygon points="30,5 52,16 52,44 30,55 8,44 8,16" fill={`url(#${gradientId})`} />
       <text
-        x="22"
-        y="25"
+        x="30"
+        y="33"
         textAnchor="middle"
         fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
-        fontSize="12"
+        fontSize="14"
         fontWeight="900"
         fill="#F9FAFB"
         letterSpacing="0.5"
@@ -355,6 +320,7 @@ const ByTeam: React.FC = () => {
           team,
           competitionId: competition.id,
           competitionName: competition.name,
+          competitionColor: competition.color,
           fixtures: [],
           umpireDuties: [],
           timeline: [],
@@ -404,6 +370,7 @@ const ByTeam: React.FC = () => {
           team,
           competitionId: competition.id,
           competitionName: competition.name,
+          competitionColor: competition.color,
           fixtures: [],
           umpireDuties: [],
           timeline: [],
@@ -505,20 +472,30 @@ const ByTeam: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 gap-6 auto-rows-max">
           {clubSchedules.map((schedule) => {
-            const fixtureCount = schedule.teams.reduce(
-              (count, teamSchedule) => count + teamSchedule.fixtures.length,
-              0
+            const { groupFixtureCount, eliminationFixtureCount } = schedule.teams.reduce(
+              (counts, teamSchedule) => {
+                teamSchedule.fixtures.forEach(({ fixture }) => {
+                  if (!fixture.stage || fixture.stage === 'Group') {
+                    counts.groupFixtureCount += 1;
+                    return;
+                  }
+                  counts.eliminationFixtureCount += 1;
+                });
+                return counts;
+              },
+              { groupFixtureCount: 0, eliminationFixtureCount: 0 }
             );
 
             return (
               <Card key={schedule.club.id} className="flex flex-col">
-                <CardHeader>
+                <CardHeader className="space-y-2 pb-3">
                   <CardTitle className="flex items-center gap-2 flex-wrap">
                     {schedule.club.name}
                     <Badge variant="secondary">{schedule.teams.length} teams</Badge>
-                    <Badge variant="outline">{fixtureCount} fixtures</Badge>
+                    <Badge variant="outline">
+                      {groupFixtureCount} group + {eliminationFixtureCount > 0 ? eliminationFixtureCount : '??'} elimination fixtures
+                    </Badge>
                   </CardTitle>
-                  <CardDescription>{schedule.club.abbreviation || schedule.club.code}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1">
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
@@ -535,9 +512,16 @@ const ByTeam: React.FC = () => {
 
                         return (
                           <section key={teamSchedule.teamId} className="space-y-2">
-                            <div className="border-b pb-2">
-                              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
-                                {teamSchedule.competitionName}
+                            <div className="rounded-lg bg-slate-200/80 p-2">
+                              <h3 className="flex items-center gap-3 text-lg font-semibold tracking-tight text-slate-800">
+                                <span
+                                  className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white"
+                                  style={{ backgroundColor: teamSchedule.competitionColor || '#b91c1c' }}
+                                  aria-hidden="true"
+                                >
+                                  {getCompetitionInitial(teamSchedule.competitionName)}
+                                </span>
+                                <span className="truncate">{teamSchedule.competitionName}</span>
                               </h3>
                             </div>
                             <div className="space-y-2.5 rounded-xl border border-slate-200/80 bg-slate-50/40 p-3">
@@ -616,9 +600,12 @@ const ByTeam: React.FC = () => {
                                       <div className="rounded-lg border-[0.2rem] border-outset border-white bg-muted/30 px-3 py-1.5">
                                         <div className="flex items-center justify-between gap-3">
                                           <div className="flex items-center gap-3 min-w-0">
-                                            <div className="flex items-center gap-2 text-sm font-mono font-semibold shrink-0">
-                                              <Clock className="h-4 w-4 text-muted-foreground" />
-                                              {entry.startTime}
+                                            <div className="flex flex-col items-center shrink-0 gap-0.5">
+                                              <div className="flex items-center gap-2 text-sm font-mono font-semibold">
+                                                <Clock className="h-4 w-4 text-muted-foreground" />
+                                                {entry.startTime}
+                                              </div>
+                                              <MatchTicket fixture={entry.fixture} competition={entry.competition} />
                                             </div>
                                             <div className="min-w-0">
                                               <TeamDisplay
@@ -628,8 +615,7 @@ const ByTeam: React.FC = () => {
                                               />
                                             </div>
                                           </div>
-                                          <div className="shrink-0 flex items-center gap-1.5">
-                                            <MatchTicket fixture={entry.fixture} competition={entry.competition} />
+                                          <div className="shrink-0 flex items-center">
                                             <StageHexagon fixture={entry.fixture} competition={entry.competition} />
                                           </div>
                                         </div>
