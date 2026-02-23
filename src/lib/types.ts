@@ -27,6 +27,7 @@ export interface Location {
   id: string;
   name: string;
   address?: string;
+  coordinates?: { lat: number; lng: number };
   website?: string;
   transportNotes?: string;
   dressingRoomNotes?: string;
@@ -36,6 +37,13 @@ export interface Location {
 export interface PitchCoordinatePoint {
   lat: number;
   lng: number;
+}
+
+export interface PitchReservation {
+  id: string;
+  date: string; // YYYY-MM-DD
+  startTime: string; // HH:mm
+  endTime: string; // HH:mm
 }
 
 export interface Team {
@@ -92,6 +100,7 @@ export interface Pitch {
   locationId?: string;
   coordinates?: PitchCoordinatePoint;
   boundary?: PitchCoordinatePoint[];
+  reservations?: PitchReservation[];
 }
 
 export interface PitchBreakItem {
