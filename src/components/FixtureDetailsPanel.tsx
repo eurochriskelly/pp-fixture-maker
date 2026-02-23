@@ -6,6 +6,16 @@ import { Separator } from '@/components/ui/separator';
 import { Fixture, PitchBreakItem } from '@/lib/types';
 import { useTournament } from '@/context/TournamentContext';
 import { TeamBadge } from './FixtureComponents';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Clock, Trophy, X, Save, Trash2, Shield, AlertCircle, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -20,7 +30,7 @@ export const FixtureDetailsPanel: React.FC<FixtureDetailsPanelProps> = ({
   onClose,
   pitchBreaks
 }) => {
-  const { competitions, updateFixture, deleteFixture } = useTournament();
+  const { competitions, pitches, updateFixture, deleteFixture } = useTournament();
   
   // Find fixture and related data
   const data = React.useMemo(() => {
@@ -40,13 +50,39 @@ export const FixtureDetailsPanel: React.FC<FixtureDetailsPanelProps> = ({
   const [duration, setDuration] = useState<string>('');
   const [slack, setSlack] = useState<string>('');
   const [rest, setRest] = useState<string>('');
+  const [umpireType, setUmpireType] = useState<'by-id' | 'by-match'>('by-id');
+  const [umpireTeamId, setUmpireTeamId] = useState<string>('');
+  const [umpireResultType, setUmpireResultType] = useState<'Winner' | 'Loser'>('Loser');
+  const [umpireMatchId, setUmpireMatchId] = useState<string>('');
   const [hasChanges, setHasChanges] = useState(false);
+  const pitchNameById = React.useMemo(() => {
+    const map = new Map<string, string>();
+    pitches.forEach((pitch) => map.set(pitch.id, pitch.name));
+    return map;
+  }, [pitches]);
 
   useEffect(() => {
     if (data) {
       setDuration(data.fixture.duration?.toString() ?? '');
       setSlack(data.fixture.slack?.toString() ?? '');
       setRest(data.fixture.rest?.toString() ?? '');
+      if (!data.fixture.umpireTeam) {
+        setUmpireType('by-id');
+        setUmpireTeamId('');
+        setUmpireResultType('Loser');
+        setUmpireMatchId('');
+      } else if (data.fixture.umpireTeam.type === 'by-id') {
+        setUmpireType('by-id');
+        setUmpireTeamId(data.fixture.umpireTeam.value);
+        setUmpireResultType('Loser');
+        setUmpireMatchId('');
+      } else {
+        const parsed = data.fixture.umpireTeam.value.match(/^(Winner|Loser)\s+(.+)$/i);
+        setUmpireType('by-match');
+        setUmpireTeamId('');
+        setUmpireResultType(parsed?.[1]?.toLowerCase() === 'winner' ? 'Winner' : 'Loser');
+        setUmpireMatchId(parsed?.[2] ?? '');
+      }
       setHasChanges(false);
     }
   }, [data?.fixture.id]); // Reset when fixture changes
@@ -70,10 +106,16 @@ export const FixtureDetailsPanel: React.FC<FixtureDetailsPanelProps> = ({
   const defaultRest = group?.defaultRest ?? 20;
 
   const handleSave = () => {
+    const nextUmpireTeam: Fixture['umpireTeam'] =
+      umpireType === 'by-id'
+        ? (umpireTeamId ? { type: 'by-id', value: umpireTeamId } : undefined)
+        : (umpireMatchId ? { type: 'by-match', value: `${umpireResultType} ${umpireMatchId}` } : undefined);
+
     updateFixture(comp.id, fixture.id, {
       duration: duration ? parseInt(duration) : undefined,
       slack: slack ? parseInt(slack) : undefined,
-      rest: rest ? parseInt(rest) : undefined
+      rest: rest ? parseInt(rest) : undefined,
+      umpireTeam: nextUmpireTeam,
     }, true, pitchBreaks); // true = shouldRecalculate
     setHasChanges(false);
   };
@@ -137,6 +179,19 @@ export const FixtureDetailsPanel: React.FC<FixtureDetailsPanelProps> = ({
   const awayName = away?.name || (fixture.awayTeamId === 'TBD' ? 'TBD' : fixture.description?.split(' vs ')[1] || 'Bye');
 
   const hasOverrides = duration !== '' || slack !== '' || rest !== '';
+  const matchCandidates = comp.fixtures
+    .filter((candidate) => candidate.id !== fixture.id && candidate.matchId)
+    .sort((a, b) => {
+      const aSamePitch = a.pitchId === fixture.pitchId ? 0 : 1;
+      const bSamePitch = b.pitchId === fixture.pitchId ? 0 : 1;
+      if (aSamePitch !== bSamePitch) return aSamePitch - bSamePitch;
+      const aTime = a.startTime || '99:99';
+      const bTime = b.startTime || '99:99';
+      if (aTime !== bTime) return aTime.localeCompare(bTime);
+      return (a.matchId || '').localeCompare(b.matchId || '');
+    });
+  const samePitchMatches = matchCandidates.filter((candidate) => candidate.pitchId === fixture.pitchId);
+  const otherPitchMatches = matchCandidates.filter((candidate) => candidate.pitchId !== fixture.pitchId);
 
   return (
     <div className="h-full flex flex-col bg-background border-t shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
@@ -220,6 +275,101 @@ export const FixtureDetailsPanel: React.FC<FixtureDetailsPanelProps> = ({
                   <p className="opacity-80 mt-0.5">Currently using defaults from {group ? group.name : 'Competition'}. Enter values above to override.</p>
                 )}
               </div>
+           </div>
+
+           <div className="mt-4 space-y-2 rounded border border-slate-200 bg-white p-2.5">
+             <div className="text-xs font-semibold text-muted-foreground">Umpire Configuration</div>
+             <div className="grid grid-cols-2 gap-2">
+               <Select
+                 value={umpireType}
+                 onValueChange={(value: 'by-id' | 'by-match') => {
+                   setUmpireType(value);
+                   setHasChanges(true);
+                 }}
+               >
+                 <SelectTrigger className="h-8 text-xs">
+                   <SelectValue placeholder="Type" />
+                 </SelectTrigger>
+                 <SelectContent>
+                   <SelectItem value="by-id">By Team</SelectItem>
+                   <SelectItem value="by-match">By Match Result</SelectItem>
+                 </SelectContent>
+               </Select>
+
+               {umpireType === 'by-id' ? (
+                 <Select
+                   value={umpireTeamId}
+                   onValueChange={(value) => {
+                     setUmpireTeamId(value);
+                     setHasChanges(true);
+                   }}
+                 >
+                   <SelectTrigger className="h-8 text-xs">
+                     <SelectValue placeholder="Select team" />
+                   </SelectTrigger>
+                   <SelectContent>
+                     {comp.teams.map((team) => (
+                       <SelectItem key={team.id} value={team.id}>
+                         {team.name}
+                       </SelectItem>
+                     ))}
+                   </SelectContent>
+                 </Select>
+               ) : (
+                 <div className="grid grid-cols-2 gap-2">
+                   <Select
+                     value={umpireResultType}
+                     onValueChange={(value: 'Winner' | 'Loser') => {
+                       setUmpireResultType(value);
+                       setHasChanges(true);
+                     }}
+                   >
+                     <SelectTrigger className="h-8 text-xs">
+                       <SelectValue placeholder="Result" />
+                     </SelectTrigger>
+                     <SelectContent>
+                       <SelectItem value="Winner">Winner</SelectItem>
+                       <SelectItem value="Loser">Loser</SelectItem>
+                     </SelectContent>
+                   </Select>
+                   <Select
+                     value={umpireMatchId}
+                     onValueChange={(value) => {
+                       setUmpireMatchId(value);
+                       setHasChanges(true);
+                     }}
+                   >
+                     <SelectTrigger className="h-8 text-xs">
+                       <SelectValue placeholder="Select match" />
+                     </SelectTrigger>
+                     <SelectContent>
+                       {samePitchMatches.length > 0 && (
+                         <SelectGroup>
+                           <SelectLabel>Same Pitch</SelectLabel>
+                           {samePitchMatches.map((candidate) => (
+                             <SelectItem key={candidate.id} value={candidate.matchId!}>
+                               {candidate.matchId} {candidate.startTime ? ` ${candidate.startTime}` : ''}
+                             </SelectItem>
+                           ))}
+                         </SelectGroup>
+                       )}
+                       {samePitchMatches.length > 0 && otherPitchMatches.length > 0 && <SelectSeparator />}
+                       {otherPitchMatches.length > 0 && (
+                         <SelectGroup>
+                           <SelectLabel>Other Pitches</SelectLabel>
+                           {otherPitchMatches.map((candidate) => (
+                             <SelectItem key={candidate.id} value={candidate.matchId!}>
+                               {candidate.pitchId ? `${pitchNameById.get(candidate.pitchId) || candidate.pitchId} - ` : ''}{candidate.matchId}
+                               {candidate.startTime ? ` ${candidate.startTime}` : ''}
+                             </SelectItem>
+                           ))}
+                         </SelectGroup>
+                       )}
+                     </SelectContent>
+                   </Select>
+                 </div>
+               )}
+             </div>
            </div>
         </div>
 
