@@ -29,7 +29,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useTournament } from "@/context/TournamentContext";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
-import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList, Shield, Grid3x3, Users, Info, MapPin } from "lucide-react";
+import { ChevronRight, Plus, Settings, Trophy, Calendar, Home, LayoutList, Shield, Grid3x3, Users, Info, MapPin, Globe } from "lucide-react";
 import { CompetitionBadge } from "@/components/CompetitionBadge";
 import { StorageIndicator } from "@/components/StorageIndicator";
 import { Button } from "@/components/ui/button";
@@ -43,14 +43,16 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { PublishDialog } from "@/components/PublishDialog";
 
 export default function SidebarLayout() {
-  const { competitions, addCompetition, currentTournament } = useTournament();
+  const { competitions, addCompetition, currentTournament, updateTournament } = useTournament();
   const navigate = useNavigate();
   const location = useLocation();
   const isPrintMode = location.pathname === '/reports/print' || new URLSearchParams(location.search).get('print') === '1';
   const [newCompName, setNewCompName] = React.useState("");
   const [isDialogOpen, setIsDialogOpen] = React.useState(false);
+  const [isPublishDialogOpen, setIsPublishDialogOpen] = React.useState(false);
 
   const handleCreate = () => {
     if (newCompName.trim()) {
@@ -208,6 +210,22 @@ export default function SidebarLayout() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
           </SidebarMenu>
+          
+          {/* Publish Button - Always visible above menu items */}
+          {currentTournament && (
+            <div className="mt-4 px-2">
+              <Button
+                className="w-full"
+                size="sm"
+                onClick={() => setIsPublishDialogOpen(true)}
+              >
+                <Globe className="w-4 h-4 mr-2" />
+                {currentTournament.published
+                  ? `Publish v${currentTournament.published.version + 1}`
+                  : "Publish"}
+              </Button>
+            </div>
+          )}
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
@@ -546,6 +564,16 @@ export default function SidebarLayout() {
             Pitch Perfect
           </div>
         </SidebarFooter>
+
+        {/* Publish Dialog */}
+        {currentTournament && (
+          <PublishDialog
+            open={isPublishDialogOpen}
+            onOpenChange={setIsPublishDialogOpen}
+            tournament={currentTournament}
+            onPublish={(updates) => updateTournament(currentTournament.id, updates)}
+          />
+        )}
       </Sidebar>
       <SidebarInset>
         <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">

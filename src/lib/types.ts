@@ -134,6 +134,13 @@ export interface Tournament {
   organizerCode?: string;
   coordinatorCode?: string;
   refereeCode?: string;
+  // Publication tracking
+  published?: {
+    at: string;
+    version: number;
+    remoteId?: number;
+    eventUuid?: string;
+  };
 }
 
 export interface TournamentData {
