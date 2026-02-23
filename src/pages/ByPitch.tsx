@@ -29,21 +29,7 @@ const toMinutes = (value?: string): number | null => {
   return (hours * 60) + minutes;
 };
 
-// Group colors for hexagon badges (50% opacity)
-const GROUP_COLORS = [
-  '#DC2626', // Red
-  '#2563EB', // Blue
-  '#16A34A', // Green
-  '#CA8A04', // Yellow
-  '#9333EA', // Purple
-  '#C2410C', // Orange
-  '#0891B2', // Cyan
-  '#BE185D', // Pink
-  '#4338CA', // Indigo
-  '#3F6212', // Lime
-];
-
-// Hexagon badge for group matches
+// Hexagon badge for group matches - uses competition color
 const StageHexagon: React.FC<{ fixture: Fixture; competition: Competition }> = ({
   fixture,
   competition,
@@ -68,80 +54,36 @@ const StageHexagon: React.FC<{ fixture: Fixture; competition: Competition }> = (
   };
 
   const code = toThreeChars(formatStageCode(fixture));
-  const isGroup = fixture.stage === 'Group';
+  const gradientId = `hexGrad-${fixture.id}`;
+  const color = competition.color || '#64748b';
   
-  if (isGroup) {
-    const groupIndex = fixture.groupId ? (groupIndexMap.get(fixture.groupId) || 1) : 1;
-    const color = GROUP_COLORS[(groupIndex - 1) % GROUP_COLORS.length];
-    const gradientId = `hexGrad-${fixture.id}`;
-    
-    // Proper hexagon within 60x60 square, 50% opacity
-    return (
-      <svg
-        viewBox="0 0 60 60"
-        width="60"
-        height="60"
-        role="img"
-        aria-label={`Group ${code}`}
-        xmlns="http://www.w3.org/2000/svg"
-        className="drop-shadow-lg"
-      >
-        <defs>
-          <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-            <stop offset="50%" stopColor={color} stopOpacity="0.6" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.3" />
-          </linearGradient>
-        </defs>
-        <polygon
-          points="30,5 52,16 52,44 30,55 8,44 8,16"
-          fill={`url(#${gradientId})`}
-        />
-        <text
-          x="30"
-          y="33"
-          textAnchor="middle"
-          fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
-          fontSize="14"
-          fontWeight="900"
-          fill="#F9FAFB"
-          letterSpacing="0.5"
-        >
-          {code}
-        </text>
-      </svg>
-    );
-  }
-
-  // Shield badge for knockout stages (finals) - gray gradient
-  const finalGradientId = `finalGrad-${fixture.id}`;
   return (
     <svg
-      viewBox="0 0 44 40"
-      width="57"
-      height="52"
+      viewBox="0 0 60 60"
+      width="60"
+      height="60"
       role="img"
       aria-label={`Stage ${code}`}
       xmlns="http://www.w3.org/2000/svg"
       className="drop-shadow-lg"
     >
       <defs>
-        <linearGradient id={finalGradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#9CA3AF" stopOpacity="0.3" />
-          <stop offset="50%" stopColor="#374151" stopOpacity="0.8" />
-          <stop offset="100%" stopColor="#9CA3AF" stopOpacity="0.3" />
+        <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="50%" stopColor={color} stopOpacity="0.6" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.3" />
         </linearGradient>
       </defs>
-      <path
-        d="M22 2c7 5 14 4 18 6v14c0 10-7 15-18 16C11 37 4 32 4 22V8c4-2 11-1 18-6Z"
-        fill={`url(#${finalGradientId})`}
+      <polygon
+        points="30,5 52,16 52,44 30,55 8,44 8,16"
+        fill={`url(#${gradientId})`}
       />
       <text
-        x="22"
-        y="25"
+        x="30"
+        y="33"
         textAnchor="middle"
         fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
-        fontSize="12"
+        fontSize="14"
         fontWeight="900"
         fill="#F9FAFB"
         letterSpacing="0.5"
@@ -294,82 +236,84 @@ const ByPitch: React.FC = () => {
                         <React.Fragment key={match.fixture.id}>
                           <div className="rounded-lg border-[0.2rem] border-outset border-white bg-muted/30 px-4 pt-1 pb-0.5" style={{ borderStyle: 'outset' }}>
                             {/* Row 1: Time and Match ID */}
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-1 font-mono font-semibold text-foreground text-sm">
-                                <Clock className="h-4 w-4 text-muted-foreground" />
-                                {match.startTime}
+                            <div className="flex items-start justify-between">
+                              <div className="flex flex-col items-center gap-0.5">
+                                <div className="flex items-center gap-1 font-mono font-semibold text-foreground text-sm">
+                                  <Clock className="h-4 w-4 text-muted-foreground" />
+                                  {match.startTime}
+                                </div>
+                                {/* Ticket-style Match ID Badge */}
+                                <svg
+                                  viewBox="0 0 72 28"
+                                  width="64"
+                                  height="24"
+                                  role="img"
+                                  aria-label={`Match ${match.fixture.matchId || ''}`}
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  className="flex-shrink-0"
+                                >
+                                  <defs>
+                                    <linearGradient id={`ticketGrad-${match.fixture.id}`} x1="0%" y1="0%" x2="100%" y2="27%">
+                                      <stop offset="0%" stopColor={match.competition.color || '#64748b'} stopOpacity={0.65} />
+                                      <stop offset="25%" stopColor={match.competition.color || '#64748b'} stopOpacity={0.9} />
+                                      <stop offset="40%" stopColor={match.competition.color || '#64748b'} stopOpacity={0.80} />
+                                      <stop offset="60%" stopColor={match.competition.color || '#64748b'} stopOpacity={0.92} />
+                                      <stop offset="75%" stopColor={match.competition.color || '#64748b'} stopOpacity={0.72} />
+                                      <stop offset="100%" stopColor={match.competition.color || '#64748b'} stopOpacity={1.0} />
+                                    </linearGradient>
+                                  </defs>
+                                  <path
+                                    d="M8 1h56a6 6 0 0 1 6 6v2c-2.5 0-5 2-5 5s2.5 5 5 5v2a6 6 0 0 1-6 6H8a6 6 0 0 1-6-6v-2c2.5 0 5-2 5-5s-2.5-5-5-5V7a6 6 0 0 1 6-6Z"
+                                    fill={`url(#ticketGrad-${match.fixture.id})`}
+                                    stroke="rgba(255,255,255,0.2)"
+                                    strokeWidth="1.5"
+                                  />
+                                  <path
+                                    d="M28 4v20"
+                                    stroke="rgba(255,255,255,0.35)"
+                                    strokeDasharray="2 3"
+                                    strokeWidth="1.5"
+                                  />
+                                  {(() => {
+                                    const matchIdStr = match.fixture.matchId || '';
+                                    const parsed = matchIdStr.match(/^([^0-9.]+)[.]?([0-9]+)$/);
+                                    const prefix = parsed ? parsed[1] : matchIdStr;
+                                    const number = parsed ? parsed[2] : '';
+                                    return (
+                                      <>
+                                        <text
+                                          x="18"
+                                          y="18"
+                                          textAnchor="middle"
+                                          fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+                                          fontSize="12"
+                                          fontWeight="800"
+                                          fill="#ffffff"
+                                          letterSpacing="0.5"
+                                        >
+                                          {prefix}
+                                        </text>
+                                        <text
+                                          x="46"
+                                          y="18"
+                                          textAnchor="middle"
+                                          fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+                                          fontSize="11"
+                                          fontWeight="700"
+                                          fill="#ffffff"
+                                          letterSpacing="0.5"
+                                        >
+                                          {number}
+                                        </text>
+                                      </>
+                                    );
+                                  })()}
+                                </svg>
                               </div>
-                              {/* Ticket-style Match ID Badge */}
-                              <svg
-                                viewBox="0 0 72 28"
-                                width="64"
-                                height="24"
-                                role="img"
-                                aria-label={`Match ${match.fixture.matchId || ''}`}
-                                xmlns="http://www.w3.org/2000/svg"
-                                className="flex-shrink-0"
-                              >
-                                <defs>
-                                  <linearGradient id={`ticketGrad-${match.fixture.id}`} x1="0%" y1="0%" x2="100%" y2="27%">
-                                    <stop offset="0%" stopColor={match.competition.color || '#64748b'} stopOpacity={0.65} />
-                                    <stop offset="25%" stopColor={match.competition.color || '#64748b'} stopOpacity={0.9} />
-                                    <stop offset="40%" stopColor={match.competition.color || '#64748b'} stopOpacity={0.80} />
-                                    <stop offset="60%" stopColor={match.competition.color || '#64748b'} stopOpacity={0.92} />
-                                    <stop offset="75%" stopColor={match.competition.color || '#64748b'} stopOpacity={0.72} />
-                                    <stop offset="100%" stopColor={match.competition.color || '#64748b'} stopOpacity={1.0} />
-                                  </linearGradient>
-                                </defs>
-                                <path
-                                  d="M8 1h56a6 6 0 0 1 6 6v2c-2.5 0-5 2-5 5s2.5 5 5 5v2a6 6 0 0 1-6 6H8a6 6 0 0 1-6-6v-2c2.5 0 5-2 5-5s-2.5-5-5-5V7a6 6 0 0 1 6-6Z"
-                                  fill={`url(#ticketGrad-${match.fixture.id})`}
-                                  stroke="rgba(255,255,255,0.2)"
-                                  strokeWidth="1.5"
-                                />
-                                <path
-                                  d="M28 4v20"
-                                  stroke="rgba(255,255,255,0.35)"
-                                  strokeDasharray="2 3"
-                                  strokeWidth="1.5"
-                                />
-                                {(() => {
-                                  const matchIdStr = match.fixture.matchId || '';
-                                  const parsed = matchIdStr.match(/^([^0-9.]+)[.]?([0-9]+)$/);
-                                  const prefix = parsed ? parsed[1] : matchIdStr;
-                                  const number = parsed ? parsed[2] : '';
-                                  return (
-                                    <>
-                                      <text
-                                        x="18"
-                                        y="18"
-                                        textAnchor="middle"
-                                        fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
-                                        fontSize="12"
-                                        fontWeight="800"
-                                        fill="#ffffff"
-                                        letterSpacing="0.5"
-                                      >
-                                        {prefix}
-                                      </text>
-                                      <text
-                                        x="46"
-                                        y="18"
-                                        textAnchor="middle"
-                                        fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
-                                        fontSize="11"
-                                        fontWeight="700"
-                                        fill="#ffffff"
-                                        letterSpacing="0.5"
-                                      >
-                                        {number}
-                                      </text>
-                                    </>
-                                  );
-                                })()}
-                              </svg>
                             </div>
 
                             {/* Row 2: Teams (closer to top) */}
-                            <div className="flex items-center justify-center gap-3 -mt-5">
+                            <div className="flex items-center justify-center gap-3 -mt-8">
                               <div className="flex justify-end flex-1 min-w-0">
                                 <TeamDisplay
                                   teamId={match.fixture.homeTeamId}

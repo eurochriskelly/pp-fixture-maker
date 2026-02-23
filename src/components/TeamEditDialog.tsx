@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Team, Club } from '@/lib/types';
 import { useTournament } from '@/context/TournamentContext';
 import { Button } from '@/components/ui/button';
@@ -18,7 +18,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { cn } from '@/lib/utils';
-import { Pencil, Trash2, Shield, Plus, X, Search, Check } from 'lucide-react';
+import { Pencil, Trash2, Shield, Plus, X, Search, Check, Clipboard } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
     Command,
@@ -67,6 +67,8 @@ export const TeamEditDialog: React.FC<TeamEditDialogProps> = ({ competitionId, t
     const [primaryColor, setPrimaryColor] = useState(team.primaryColor || '#3b82f6');
     const [secondaryColor, setSecondaryColor] = useState(team.secondaryColor || '#ffffff');
     const [crest, setCrest] = useState(team.crest);
+    const [isPastingCrest, setIsPastingCrest] = useState(false);
+    const [crestPasteError, setCrestPasteError] = useState<string | null>(null);
 
     // Club Links
     const [clubId, setClubId] = useState<string | undefined>(team.clubId);
@@ -101,6 +103,49 @@ export const TeamEditDialog: React.FC<TeamEditDialogProps> = ({ competitionId, t
 
     const leadClubId = overrideLeadClubId || calculatedLeadClubId || clubId;
 
+    const applyClipboardBlobAsCrest = useCallback((blob: Blob) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = reader.result;
+            if (typeof result === 'string') {
+                setCrest(result);
+                setCrestPasteError(null);
+            } else {
+                setCrestPasteError('Unable to read image from clipboard.');
+            }
+        };
+        reader.onerror = () => setCrestPasteError('Unable to read image from clipboard.');
+        reader.readAsDataURL(blob);
+    }, []);
+
+    const pasteCrestFromClipboard = useCallback(async () => {
+        setIsPastingCrest(true);
+        setCrestPasteError(null);
+
+        try {
+            if (!navigator.clipboard?.read) {
+                setCrestPasteError('Clipboard image access is not supported in this browser.');
+                return;
+            }
+
+            const clipboardItems = await navigator.clipboard.read();
+            for (const item of clipboardItems) {
+                const imageType = item.types.find((type) => type.startsWith('image/'));
+                if (!imageType) continue;
+
+                const imageBlob = await item.getType(imageType);
+                applyClipboardBlobAsCrest(imageBlob);
+                return;
+            }
+
+            setCrestPasteError('No image found in clipboard.');
+        } catch {
+            setCrestPasteError('Clipboard access was blocked. Try Cmd/Ctrl+V while this dialog is open.');
+        } finally {
+            setIsPastingCrest(false);
+        }
+    }, [applyClipboardBlobAsCrest]);
+
     // Reset state when dialog opens
     useEffect(() => {
         if (open) {
@@ -113,8 +158,32 @@ export const TeamEditDialog: React.FC<TeamEditDialogProps> = ({ competitionId, t
             setSecondaryClubIds(team.secondaryClubIds || []);
             setContributions(team.clubContributions || {});
             setOverrideLeadClubId(team.overrideLeadClubId);
+            setCrestPasteError(null);
+            setIsPastingCrest(false);
         }
     }, [open, team]);
+
+    useEffect(() => {
+        if (!open) return;
+
+        const handlePaste = (event: ClipboardEvent) => {
+            const clipboardItems = event.clipboardData?.items;
+            if (!clipboardItems) return;
+
+            for (const item of clipboardItems) {
+                if (!item.type.startsWith('image/')) continue;
+                const imageFile = item.getAsFile();
+                if (!imageFile) continue;
+
+                event.preventDefault();
+                applyClipboardBlobAsCrest(imageFile);
+                return;
+            }
+        };
+
+        window.addEventListener('paste', handlePaste);
+        return () => window.removeEventListener('paste', handlePaste);
+    }, [open, applyClipboardBlobAsCrest]);
 
     // Update visuals when primary club changes
     useEffect(() => {
@@ -231,7 +300,7 @@ export const TeamEditDialog: React.FC<TeamEditDialogProps> = ({ competitionId, t
                         <TabsContent value="details" className="space-y-4 py-4">
                             <div className="flex justify-center mb-4">
                                 <div
-                                    className="w-24 h-24 rounded-lg flex items-center justify-center text-3xl font-bold border-4 shadow-sm relative overflow-hidden"
+                                    className="group w-24 h-24 rounded-lg flex items-center justify-center text-3xl font-bold border-4 shadow-sm relative overflow-hidden"
                                     style={{ 
                                         backgroundColor: primaryColor, 
                                         color: secondaryColor,
@@ -243,8 +312,21 @@ export const TeamEditDialog: React.FC<TeamEditDialogProps> = ({ competitionId, t
                                     ) : (
                                         initials
                                     )}
+                                    <button
+                                        type="button"
+                                        onClick={pasteCrestFromClipboard}
+                                        disabled={isPastingCrest}
+                                        className="absolute inset-x-1 bottom-1 inline-flex items-center justify-center gap-1 rounded-md bg-black/65 px-2 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-80"
+                                        title="Paste team logo from clipboard"
+                                    >
+                                        <Clipboard className="h-3 w-3" />
+                                        {isPastingCrest ? 'Pasting...' : 'Paste from clipboard'}
+                                    </button>
                                 </div>
                             </div>
+                            {crestPasteError && (
+                                <p className="text-center text-xs text-destructive -mt-2">{crestPasteError}</p>
+                            )}
 
                             <div className="grid grid-cols-4 items-center gap-4">
                                 <Label htmlFor="name" className="text-right">
