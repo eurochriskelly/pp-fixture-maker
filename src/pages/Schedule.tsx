@@ -524,7 +524,6 @@ const Schedule = () => {
       )
     );
   }, [competitions]);
-
   const handleUnassign = (fixtureId: string) => {
     const comp = competitions.find(c => c.fixtures.some(f => f.id === fixtureId));
     if (comp) {
