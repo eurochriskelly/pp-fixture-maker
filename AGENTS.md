@@ -41,9 +41,31 @@ There is currently no dedicated frontend test suite. Minimum expectation for con
 
 When adding tests later, place them next to source files as `*.test.ts` or `*.test.tsx`.
 
+## Documentation Requirements
+
+### Schema Documentation
+
+All TypeScript types and data structures must be documented in `docs/schema/`:
+
+- **Location**: `docs/schema/*.md`
+- **Entry Point**: `docs/schema/README.md`
+- **Maintenance Skill**: `docs/skills/pp-maintain-docs/SKILL.md`
+
+**When changing types or storage patterns:**
+1. Update the corresponding markdown file(s) in `docs/schema/`
+2. Use the `pp-maintain-docs` skill to verify documentation is in sync
+3. Ensure field descriptions are accurate and complete
+
+**Files to maintain:**
+- `Tournament.md`, `Competition.md`, `Team.md`, `Group.md`, `Fixture.md`
+- `Club.md`, `Pitch.md`, `PitchBreakItem.md`
+- `local-storage.md` (storage keys and patterns)
+- `ppp-archive.md` (export format)
+
 ## Commit & Pull Request Guidelines
 Follow concise, imperative commit messages, preferably Conventional Commit style as seen in history (`feat: ...`, `chore: ...`).
 
 - Keep commits focused on one change.
 - PRs should include: purpose, scope, test evidence, and screenshots/GIFs for UI changes.
 - Link related issues/tasks and call out any migration or config impact.
+- **Note schema documentation updates** in PR description when types change.

@@ -41,7 +41,7 @@ const Tournaments = () => {
 
   const handleOpenTournament = (tournament: typeof tournaments[0]) => {
     setCurrentTournament(tournament);
-    navigate('/');
+    navigate('/overview');
   };
 
   const formatDate = (dateString: string) => {
