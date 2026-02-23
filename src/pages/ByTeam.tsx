@@ -467,6 +467,18 @@ const ByTeam: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <style>{`
+        @media print {
+          .club-print-section {
+            break-after: page;
+            page-break-after: always;
+          }
+          .club-print-section:last-child {
+            break-after: auto;
+            page-break-after: auto;
+          }
+        }
+      `}</style>
       <div>
         <p className="text-muted-foreground">
           View all scheduled matches by club, then by team, each sorted by kickoff time.
@@ -500,7 +512,7 @@ const ByTeam: React.FC = () => {
             );
 
             return (
-              <Card key={schedule.club.id} className="flex flex-col">
+              <Card key={schedule.club.id} className="flex flex-col club-print-section">
                 <CardHeader className="space-y-2 pb-3">
                   <CardTitle className="flex items-center gap-2 flex-wrap">
                     {schedule.club.name}
