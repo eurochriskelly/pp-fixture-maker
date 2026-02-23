@@ -1,6 +1,7 @@
 import React from 'react';
 import { Fixture, Competition, Team } from '@/lib/types';
 import { TeamEditDialog } from '@/components/TeamEditDialog';
+import { CrestImage } from '@/components/CrestImage';
 import { cn } from '@/lib/utils';
 import { Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -78,7 +79,12 @@ export const TeamBadge: React.FC<{ team?: Team }> = ({ team }) => {
           style={{ backgroundColor: bg, color: fg }}
         >
           {team?.crest ? (
-             <img src={team.crest} alt={team.name} className="w-full h-full object-contain p-0.5" />
+             <CrestImage 
+               src={team.crest} 
+               alt={team.name} 
+               className="w-full h-full object-contain p-0.5"
+               fallback={initials}
+             />
           ) : (
              initials
           )}

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Trash2, GripVertical, Pencil, AlertCircle } from 'lucide-react';
 import { TeamEditDialog } from '@/components/TeamEditDialog';
+import { CrestImage } from '@/components/CrestImage';
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -82,7 +83,12 @@ export const GroupList: React.FC<GroupListProps> = ({ competitionId, groups, tea
                             }}
                         >
                             {team.crest ? (
-                                <img src={team.crest} alt={team.name} className="w-full h-full object-contain p-0.5" />
+                                <CrestImage 
+                                    src={team.crest} 
+                                    alt={team.name} 
+                                    className="w-full h-full object-contain p-0.5"
+                                    fallback={team.initials || team.name.substring(0, 2).toUpperCase()}
+                                />
                             ) : (
                                 team.initials || team.name.substring(0, 2).toUpperCase()
                             )}
