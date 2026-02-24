@@ -44,10 +44,11 @@ const DEFAULT_GROUP_REST = 20;
 const MIN_PITCH_WINDOW_MINUTES = 10;
 const DRAG_SNAP_MINUTES = 5;
 const DEFAULT_BREAK_DURATION = 20;
+const REST_BREAK_DURATION = 15;
 const MIN_BREAK_DURATION = 5;
 const BREAK_DURATION_STEP_MINUTES = 1;
 const SCHEDULE_VERTICAL_SCALE_STORAGE_KEY = 'tournament_schedule_vertical_scale_v1';
-const BREAK_PATTERN_GRAY = 'repeating-linear-gradient(45deg, #6b7280, #6b7280 4px, #4b5563 4px, #4b5563 8px)';
+const BREAK_PATTERN_GRAY = 'repeating-linear-gradient(45deg, #adb5bd, #adb5bd 4px, #9ca3af 4px, #9ca3af 8px)';
 const DRAWER_HEIGHT_PX = 280; // Fixed height for the details drawer
 
 type PitchFixtureItem = {
@@ -1350,6 +1351,43 @@ const Schedule = () => {
     showChangeFeedback(getActuallyChangedFixtureIds(updates.fixtureUpdates));
   };
 
+  const handleAddRestBreak = (pitchId: string, fixtureId: string, teamName: string) => {
+    const timeline = listPitchTimeline(pitchId);
+    const fixtureIndex = timeline.findIndex(
+      (item) => item.kind === 'fixture' && item.item.fixture.id === fixtureId
+    );
+
+    if (fixtureIndex === -1) return;
+
+    // Calculate start time - insert before the fixture
+    let startMinutes: number;
+    if (fixtureIndex > 0) {
+      const itemBefore = timeline[fixtureIndex - 1];
+      startMinutes = getTimelineStartMinutes(itemBefore) + getTimelineBlockMinutes(itemBefore);
+    } else {
+      const pitchStart = effectivePitchById.get(pitchId)?.startTime || DEFAULT_ASSIGN_TIME;
+      startMinutes = minutesFromMidnight(pitchStart);
+    }
+
+    const nextBreak: PitchBreakItem = {
+      id: uuidv4(),
+      pitchId,
+      startTime: timeFromMinutes(startMinutes),
+      duration: REST_BREAK_DURATION,
+      label: `REST: ${teamName}`,
+    };
+
+    const nextTimeline = [
+      ...timeline.slice(0, fixtureIndex),
+      { kind: 'break' as const, item: nextBreak },
+      ...timeline.slice(fixtureIndex),
+    ];
+    const nextBreaks = [...pitchBreaks, nextBreak];
+    const updates = buildPitchTimelineUpdates(pitchId, nextTimeline);
+    applyPitchTimelineUpdates(updates, { baseBreaks: nextBreaks });
+    showChangeFeedback(getActuallyChangedFixtureIds(updates.fixtureUpdates));
+  };
+
   const handleDeleteBreak = (pitchId: string, breakId: string) => {
     const nextTimeline = listPitchTimeline(pitchId).filter(
       (timelineItem) => !(timelineItem.kind === 'break' && timelineItem.item.id === breakId)
@@ -2199,11 +2237,53 @@ const Schedule = () => {
                                   const restTeams = restWarningsByFixtureId.get(fixture.id);
                                   const homeNeedsRest = restTeams?.has(fixture.homeTeamId);
                                   const awayNeedsRest = restTeams?.has(fixture.awayTeamId);
+                                  const homeTeam = comp?.teams.find((t) => t.id === fixture.homeTeamId);
+                                  const awayTeam = comp?.teams.find((t) => t.id === fixture.awayTeamId);
+                                  const homeTeamName = homeTeam?.name || homeDisplay;
+                                  const awayTeamName = awayTeam?.name || awayDisplay;
                                   return (
                                     <>
-                                      <span className={homeNeedsRest ? 'text-orange-600 font-bold' : ''} title={homeNeedsRest ? 'Insufficient rest' : ''}>{homeNeedsRest ? '⚠ ' : ''}{homeDisplay}</span>
+                                      {homeNeedsRest ? (
+                                        <span className="inline-flex items-center gap-1 text-orange-600 font-bold group/rest-home">
+                                          <span className="cursor-help" title={`${homeTeamName} needs rest`}>⚠</span>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (fixture.pitchId) {
+                                                handleAddRestBreak(fixture.pitchId, fixture.id, homeTeamName);
+                                              }
+                                            }}
+                                            className="hidden group-hover/rest-home:inline-flex items-center px-1.5 py-0.5 rounded bg-orange-500 text-white text-[9px] font-semibold hover:bg-orange-600 transition-colors"
+                                            title={`Add 15min rest break for ${homeTeamName}`}
+                                          >
+                                            +15
+                                          </button>
+                                          {homeDisplay}
+                                        </span>
+                                      ) : (
+                                        <span>{homeDisplay}</span>
+                                      )}
                                       {' v '}
-                                      <span className={awayNeedsRest ? 'text-orange-600 font-bold' : ''} title={awayNeedsRest ? 'Insufficient rest' : ''}>{awayDisplay}{awayNeedsRest ? ' ⚠' : ''}</span>
+                                      {awayNeedsRest ? (
+                                        <span className="inline-flex items-center gap-1 text-orange-600 font-bold group/rest-away">
+                                          {awayDisplay}
+                                          <span className="cursor-help" title={`${awayTeamName} needs rest`}>⚠</span>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (fixture.pitchId) {
+                                                handleAddRestBreak(fixture.pitchId, fixture.id, awayTeamName);
+                                              }
+                                            }}
+                                            className="hidden group-hover/rest-away:inline-flex items-center px-1.5 py-0.5 rounded bg-orange-500 text-white text-[9px] font-semibold hover:bg-orange-600 transition-colors"
+                                            title={`Add 15min rest break for ${awayTeamName}`}
+                                          >
+                                            +15
+                                          </button>
+                                        </span>
+                                      ) : (
+                                        <span>{awayDisplay}</span>
+                                      )}
                                     </>
                                   );
                                 })()}
@@ -2263,7 +2343,7 @@ const Schedule = () => {
                             setSelectedFixtureId(null);
                           }}
                           className={cn(
-                            'absolute w-[95%] left-[2.5%] rounded border border-slate-700 overflow-hidden shadow-sm cursor-move',
+                            'absolute w-[95%] left-[2.5%] rounded border border-slate-300 overflow-hidden shadow-sm cursor-move',
                             isResizing && 'ring-2 ring-amber-400',
                             draggingItem?.kind === 'break' && draggingItem.id === pitchBreak.id && 'opacity-50',
                             selectedBreakId === pitchBreak.id && 'ring-2 ring-emerald-400'
@@ -2276,20 +2356,20 @@ const Schedule = () => {
                           }}
                           title={`${pitchBreak.startTime} - ${pitchBreak.label}`}
                         >
-                          <div className="relative h-full w-full px-1.5 py-1 text-slate-100">
+                          <div className="relative h-full w-full px-1.5 py-1 text-slate-700">
                             <div className="flex items-center justify-between gap-1">
-                              <div className="font-semibold uppercase tracking-wide text-slate-100/90" style={{ fontSize: scaledFontSize(9) }}>
+                              <div className="font-semibold uppercase tracking-wide text-slate-700" style={{ fontSize: scaledFontSize(9) }}>
                                 {pitchBreak.startTime}
                               </div>
                               <div className="flex items-center gap-1">
-                                <div className="font-semibold text-slate-100/90" style={{ fontSize: scaledFontSize(9) }}>{duration}m</div>
+                                <div className="font-semibold text-slate-700" style={{ fontSize: scaledFontSize(9) }}>{duration}m</div>
                                 {!isCompactBreak && (
                                 <button
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     handleDeleteBreak(pitch.id, pitchBreak.id);
                                   }}
-                                  className="h-4 w-4 flex items-center justify-center rounded bg-slate-800/35 hover:bg-red-700/60 text-slate-100"
+                                  className="h-4 w-4 flex items-center justify-center rounded bg-slate-200/50 hover:bg-red-100 text-slate-700"
                                   title="Delete break"
                                 >
                                   <X className="w-2.5 h-2.5" />
@@ -2308,26 +2388,26 @@ const Schedule = () => {
                                     (event.target as HTMLInputElement).blur();
                                   }
                                 }}
-                                className="mt-1 h-5 w-full rounded border border-slate-300/80 bg-slate-100/20 px-1 font-semibold text-white placeholder:text-slate-100/80 focus:outline-none focus:ring-1 focus:ring-amber-300"
+                                className="mt-1 h-5 w-full rounded border border-slate-300/80 bg-white/50 px-1 font-semibold text-slate-900 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-300"
                                 style={{ fontSize: scaledFontSize(10) }}
                                 placeholder="Break label"
                                 aria-label="Break label"
                               />
                             ) : (
-                              <div className="mt-0.5 truncate text-slate-100/90" style={{ fontSize: scaledFontSize(9) }}>{pitchBreak.label}</div>
+                              <div className="mt-0.5 truncate text-slate-700" style={{ fontSize: scaledFontSize(9) }}>{pitchBreak.label}</div>
                             )}
 
                             {!isCompactBreak ? (
-                              <div className="mt-1 text-slate-100/90" style={{ fontSize: scaledFontSize(9) }}>{duration} min</div>
+                              <div className="mt-1 text-slate-600" style={{ fontSize: scaledFontSize(9) }}>{duration} min</div>
                             ) : null}
 
                             <button
                               type="button"
                               onMouseDown={(event) => onBreakResizeMouseDown(event, pitchBreak)}
-                              className="absolute inset-x-0 bottom-0 h-2 cursor-row-resize bg-slate-700/25 hover:bg-amber-500/40"
+                              className="absolute inset-x-0 bottom-0 h-2 cursor-row-resize bg-slate-300/50 hover:bg-amber-400/40"
                               title="Drag to resize break duration"
                             >
-                              <span className="mx-auto mt-[2px] block h-[2px] w-8 rounded bg-slate-100/80" />
+                              <span className="mx-auto mt-[2px] block h-[2px] w-8 rounded bg-slate-400/80" />
                             </button>
                           </div>
                         </div>

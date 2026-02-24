@@ -139,7 +139,7 @@ export function PublishDialog({
 
     try {
       // Create the zip archive
-      const archiveBlob = createPppArchive(tournament);
+      const archiveBlob = await createPppArchive(tournament);
 
       // Prepare form data
       const formData = new FormData();

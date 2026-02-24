@@ -72,7 +72,7 @@ export const TeamBadge: React.FC<{ team?: Team }> = ({ team }) => {
   const fg = isUnknown ? '#dc2626' : team!.secondaryColor || '#ffffff';
 
   return (
-    <div className="rounded-md bg-gradient-to-br from-gray-200 to-gray-800 p-[3px] flex items-center justify-center shadow-sm shrink-0">
+    <div className="rounded-md bg-gradient-to-br from-gray-100 to-gray-300 p-[3px] flex items-center justify-center shadow-sm shrink-0">
       <div className="rounded-[4px] flex items-center justify-center overflow-hidden">
         <div
           className="w-[44px] h-[44px] rounded-[3px] flex items-center justify-center text-[12px] font-black uppercase leading-none overflow-hidden relative"
